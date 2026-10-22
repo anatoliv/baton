@@ -1,6 +1,6 @@
 import Foundation
 
-// A gentle alarm's 30-second rise in Baton's player (TBX-1000000445, specs/alarm-and-timer.md).
+// A gentle alarm's 30-second rise in Baton's player.
 // The curve and its clock are `AlarmVolumeRamp`'s; this is where it meets the output level.
 extension StreamingPlaybackController {
     /// Whether a gentle alarm's rise is under way (a level held after Pause is not a rise).

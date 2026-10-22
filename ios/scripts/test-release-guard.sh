@@ -56,7 +56,7 @@ EOF
 # An .xcarchive in miniature: the summary plist Xcode writes at the top, and the app
 # bundle underneath it whose Info.plist is what actually ships. $2 = version, and $3,
 # when given, is the BatonSourceCommit value; omit $3 for a bundle with no such key,
-# which is what every build before TBX-5102 produced.
+# which is what every build before an internal task produced.
 archive_bundle() {
   local arc="$1" ver="$2" app="$1/Products/Applications/Baton.app"
   mkdir -p "$app"
@@ -161,7 +161,7 @@ expect_saying() {
   fi
 }
 
-# TBX-5386: testflight.sh calls this shared admission guard before it reads release
+# testflight.sh calls this shared admission guard before it reads release
 # credentials. Plant a primary checkout and separately prove a clone under
 # /private/tmp stays green.
 . "$DIR/../../scripts/release-checkout.sh"
@@ -288,7 +288,7 @@ shape red   "40 Arabic-Indic digits: digits to Unicode, never a git object id"  
 
 # -------------------------------------- the same rule, under hostile locales
 # Both halves of this section are load-bearing, and each was arrived at the expensive
-# way on the macOS guard (TBX-5101), which shares this code's shape.
+# way on the macOS guard, which shares this code's shape.
 #
 # THE FIXTURE. `[!0-9a-f]` looks like "reject anything but lowercase hex" and is not:
 # a bracket range is collation-driven, and en_US.UTF-8 orders aAbBcCdDeEfF, so under
@@ -605,7 +605,7 @@ tf_edit_targets() {
 }
 
 check_release_edit_drift() {
-  local tf="$1" nsites ndeclared target
+  local tf="$1" nsites ndeclared target declared
   nsites="$(tf_edit_sites "$tf" | grep -c . || true)"
   ndeclared="$(tf_declared_paths "$tf" | grep -c . || true)"
   if [ "$ndeclared" -eq 0 ]; then
@@ -628,9 +628,10 @@ check_release_edit_drift() {
   # Counts agree. Now the part counts cannot see: every resolved target must itself be
   # declared, so an edit that moves to a different file fails here even though the
   # count is unchanged.
+  declared="$(tf_declared_paths "$tf")"
   while IFS= read -r target; do
     [ -n "$target" ] || continue
-    if ! tf_declared_paths "$tf" | grep -qxF "$target"; then
+    if ! grep -qxF "$target" <<<"$declared"; then
       {
         echo "ERROR: $tf rewrites '$target' in place, which is not declared to the guard."
         echo "  declared:"

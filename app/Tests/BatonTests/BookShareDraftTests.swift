@@ -6,7 +6,7 @@ import Foundation
 import XCTest
 @testable import Baton
 
-/// A Mac book as Share… sees it (TBX-1000000132, `specs/book-sharing.md`): only chapters whose
+/// A Mac book as Share… sees it: only chapters whose
 /// audio is here, in order, with the sizes the planner checks against the service's caps.
 @MainActor
 final class BookShareDraftTests: XCTestCase {
@@ -127,7 +127,7 @@ final class BookShareDraftTests: XCTestCase {
     }
 
     /// A seal killed midway leaves a ticketless folder of ciphertext no retry can use (review,
-    /// TBX-1000000132): it is swept after an hour, and nothing else is.
+    /// An internal task): it is swept after an hour, and nothing else is.
     func testOnlyOldTicketlessStagingFoldersAreSwept() throws {
         let staging = root.appendingPathComponent("PendingBookShares")
         let manager = FileManager.default

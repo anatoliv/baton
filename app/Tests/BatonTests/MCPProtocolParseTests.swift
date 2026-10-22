@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// : the MCP HTTP parser must never trap on malformed input — it runs in
+/// The MCP HTTP parser must never trap on malformed input — it runs in
 /// `receive()` BEFORE the bearer-token check, so any local process can reach it.
 /// These cases pin the previously-crashing inputs (bare "=" query, negative
 /// Content-Length) plus the general robustness surface.

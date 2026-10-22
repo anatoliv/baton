@@ -1,5 +1,5 @@
 #!/bin/bash
-# Every function of the Mac's book screen, exercised on a probe instance (TBX-11063), never the
+# Every function of the Mac's book screen, exercised on a probe instance, never the
 # owner's Baton:
 #
 #   KOKORO_URL=http://<kokoro-host>:8880 scripts/probe-book-screen.sh <Baton.app> <evidence-dir>
@@ -24,7 +24,7 @@
 #   restore   a chapter left paused, then the app quit and opened again: Resume plays on from
 #             that place (the next chapter starts when the audio left runs out) and Read Along
 #             follows it
-#   revoice   Change Voice… while chapter 1 plays (TBX-1000000105): the book is made again in
+#   revoice   Change Voice… while chapter 1 plays: the book is made again in
 #             another Kokoro voice (TO_VOICE, default am_adam, offered as VOICE_LABEL), and the same running probe goes
 #             on playing the chapter in its new audio, with no relaunch. Not in the default list:
 #             run it as STAGES="make revoice".
@@ -99,7 +99,7 @@ heard() { rows | grep -oE '^(Under 1|[0-9]+)% heard$' | head -1; }
 dump() { echo "   what Accessibility sees:"; rows | head -80 | sed 's/^/     /'; }
 # A book's status line while it is made. It is part of the book row's label, which SwiftUI
 # merges into the row button's one title ("[button] Probe Machine, …, Making chapter 1 of 3, 40%"),
-# so it is matched anywhere in a line, not at its start (TBX-1000000105).
+# so it is matched anywhere in a line, not at its start.
 STATUS_RE='(Making|Waiting to make|Finishing) chapter [0-9]+ of [0-9]+'
 landed() { ls "$ROOT"/Clippings/*.m4a 2>/dev/null | wc -l | tr -d ' '; }
 timings() { ls "$ROOT"/Books/read-along/*.json 2>/dev/null | wc -l | tr -d ' '; }
@@ -227,7 +227,7 @@ stage_make() {
   local book="$WORK/book/$TITLE.md"
   mkdir -p "$WORK/book"
   # Chapter 1 is about a minute long so that it is still playing when its new voice lands in the
-  # revoice stage, however long the Change Voice sheet takes to offer its voices (TBX-1000000105:
+  # revoice stage, however long the Change Voice sheet takes to offer its voices (
   # at 22 s it ended first once, and the player had moved on to chapter 2).
   cat > "$book" <<'MD'
 # Probe Machine
@@ -276,7 +276,7 @@ MD
   # The status line is read by a watcher that looks continuously from before the press until the
   # book is made, so a short-lived line is not missed between the main thread's other reads. Each
   # look appends "<3 once all three chapters and timings are kept, else 0> <status line or none>";
-  # "press" marks the press, and only lines after it count (TBX-1000000105).
+  # "press" marks the press, and only lines after it count.
   after_press() { awk 'p; /^press$/ { p = 1 }' "$looks"; }   # also when "press" is the first line
   local looks="$WORK/status-looks.txt"; : > "$looks"; rm -f "$WORK/status-stop"
   ( while [ ! -f "$WORK/status-stop" ] && [ -d "$WORK" ] && kill -0 "$PID" 2>/dev/null; do
@@ -341,7 +341,7 @@ stage_button() {
   sleep 6
   local h2; h2="$(heard)"
   [ "$h2" != "$h1" ]; rc=$?; verdict "\"% heard\" moved on while playing ('$h1' -> '$h2')" $rc
-  # Before TBX-11063 a press here queued the book again from the place saved up to 5 s ago.
+  # Before an internal task a press here queued the book again from the place saved up to 5 s ago.
   local p4; p4="$(pos)"
   "$AX_BIN" press "$PID" "book-play" >/dev/null
   wait_for 5 '[ "$(state)" = paused ]'; rc=$?; verdict "a press while it plays pauses it, at $(pos) s (was $p4 s)" $rc

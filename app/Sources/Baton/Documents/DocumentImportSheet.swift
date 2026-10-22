@@ -226,7 +226,7 @@ struct DocumentImportSheet: View {
     }
 
     /// The suggested narrator and two alternates, then every voice the renderer offers
-    ///, each one click to choose and one to hear.
+    /// each one click to choose and one to hear.
     @ViewBuilder
     private func narrator(_ document: ImportedDocument) -> some View {
         VStack(alignment: .leading, spacing: 6) {

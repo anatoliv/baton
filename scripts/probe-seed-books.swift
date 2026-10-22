@@ -1,5 +1,5 @@
 // Puts a few tiny books on a throwaway gateway through its own routes, for probes that need a
-// home server with books on it (scripts/probe-storage-home-server.sh, TBX-10850):
+// home server with books on it (scripts/probe-storage-home-server.sh):
 //
 //   probe-seed-books <gateway base URL> <token file> <work dir>
 //

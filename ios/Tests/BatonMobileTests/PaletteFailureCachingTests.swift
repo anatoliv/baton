@@ -6,7 +6,7 @@ import XCTest
 /// `ArtworkPaletteLoader` used to write `.neutral` into its cache after any failure, so a
 /// single dropped request while a track started left that track's colour-from-artwork
 /// backdrop grey for the rest of the session, or until 64 other tracks evicted the entry.
-/// Nothing on screen said why, and playing the track again did not fix it. (TBX-5349 / S-F19)
+/// Nothing on screen said why, and playing the track again did not fix it.
 @MainActor
 final class PaletteFailureCachingTests: XCTestCase {
     private var directory: URL!

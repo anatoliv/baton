@@ -110,7 +110,7 @@ final class VoiceSuggestionsTests: XCTestCase {
         XCTAssertEqual(listed, ["kokoro:af_heart", "kokoro:bf_emma"])
     }
 
-    /// TBX-10916 under Voice engine for books: Emma narrates a British book with no
+    /// An internal task under Voice engine for books: Emma narrates a British book with no
     /// suggestion only when the engine that will render has her. Built-in counts only the built-in
     /// voices; Voice server only the server's.
     func testTheNarratorDefaultFollowsTheVoiceEngineForBooks() async {

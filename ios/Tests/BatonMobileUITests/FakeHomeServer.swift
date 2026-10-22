@@ -6,7 +6,7 @@ import Network
 /// A home server for phone UI tests, in the test runner, on 127.0.0.1 (M5.3). It speaks the
 /// gateway's book routes over a real socket, as `HomeServerBooksPhoneTests.FakeGateway` does in
 /// process: list, submit, status, chapter download (with `X-Baton-SHA256`), chapter timing,
-/// finished, delete, and the voice list (`/v1/voices`, TBX-10962, 404 until `setVoices`). The
+/// finished, delete, and the voice list (`/v1/voices`, 404 until `setVoices`). The
 /// app reaches it through `uitestGatewayURL` (DEBUG only), so a test can say when a chapter is
 /// ready and count what the app asked for, and when.
 ///

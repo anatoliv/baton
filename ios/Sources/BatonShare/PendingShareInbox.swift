@@ -78,7 +78,7 @@ struct PendingShareInbox: Sendable {
 
     /// A page's address, kept without its fragment. A Baton share link is refused: its fragment
     /// is the song's key, and as a "page" it would be written here, used as a file name and sent
-    /// to the gateway by Send to my Mac (TBX-1000000505 B-6).
+    /// to the gateway by Send to my Mac.
     @discardableResult
     func writeLink(_ url: URL, now: Date = Date()) throws -> Marker {
         guard !Self.isBatonShareLink(url) else { throw WriteError.batonShareLink }

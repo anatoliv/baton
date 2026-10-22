@@ -190,7 +190,7 @@ final class AlarmQuickSetupTests: XCTestCase {
         XCTAssertNil(AlarmPillState.current(store, now: now, calendar: utc))
     }
 
-    /// A timer and an alarm at the same time (owner, 2026-10-21, TBX-1000000410): setting one
+    /// A timer and an alarm at the same time (owner, 2026-10-21): setting one
     /// keeps the other, in either order, through the quick sheet; both show a pill, timer first;
     /// each ✕ cancels only its own.
     func testATimerAndAnAlarmAreSetTogetherAndCancelledApart() throws {

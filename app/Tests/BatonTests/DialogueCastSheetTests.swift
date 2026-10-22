@@ -35,7 +35,7 @@ final class DialogueCastSheetTests: XCTestCase {
         XCTAssertFalse(choice.holdsTheBook)
     }
 
-    /// TBX-10916: off for the first book on a Mac, then each import starts as the person last
+    /// Off for the first book on a Mac, then each import starts as the person last
     /// left the switch on this Mac. The key stays on this Mac: it is not a synced preference.
     func testTheSwitchStartsAsThePersonLastLeftItOnThisMac() {
         let (name, defaults) = ThrowawayDefaults.suite("voice-the-dialogue")
@@ -54,7 +54,7 @@ final class DialogueCastSheetTests: XCTestCase {
         XCTAssertFalse(synced.contains(DialogueCastChoice.rememberedKey))
     }
 
-    /// TBX-10916: with the voices the engine offers known, an English book starts with Heart, or
+    /// With the voices the engine offers known, an English book starts with Heart, or
     /// Emma when it declared British English; without the list, or for another language, the
     /// configured default as before. The same shared rule the phone compiles.
     func testTheLanguageDefaultPrefersHeartOrEmmaWhenTheEngineHasThem() {
@@ -100,7 +100,7 @@ final class DialogueCastSheetTests: XCTestCase {
         XCTAssertNotEqual(BookJob.id(for: cast), BookJob.id(for: DocumentSpeech.prepare(document, voices: plan)))
     }
 
-    /// TBX-10894: once the cast is checked a model places the lines the rules leave. Make
+    /// Once the cast is checked a model places the lines the rules leave. Make
     /// Audiobook waits while it does; its answers go into the book; with none, the rules' book.
     func testTheLinesTheRulesLeaveArePlacedBeforeTheBookIsMade() {
         // The three lines above are placed by their tags; a fourth, untagged, is left.

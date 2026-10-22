@@ -4,7 +4,7 @@ import Observation
 import OSLog
 import BatonSubsonicKit
 // The MCP transport protocol (JSON-RPC, HTTP parsing/framing, token compare) is the fourth
-// leaf of the  module split. Re-exported so every call site stays unqualified; the server
+// leaf of the module split. Re-exported so every call site stays unqualified; the server
 // itself (which ties into MusicModel) stays in the app.
 @_exported import BatonMCPProtocol
 
@@ -219,7 +219,7 @@ final class BatonMCPServer {
         boundPort = nil
         // Remove the discovery file so a stale token+port doesn't linger after quit/crash
         // for another process to harvest. Only our own: an instance refused by the
-        // live-owner guard never wrote it, and the file is the live owner's. (TBX-1000000480 A-2)
+        // live-owner guard never wrote it, and the file is the live owner's.
         if let dir = discoveryDirectory(), discoveryFilePid(in: dir) == Int(ProcessInfo.processInfo.processIdentifier) {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent("mcp.json"))
         }

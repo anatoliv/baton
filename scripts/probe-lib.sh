@@ -2,7 +2,7 @@
 # Helpers for driving a *probe* instance of the Mac app next to the owner's own Baton.
 # Sourced by scripts/probe-menubar-freeze.sh and scripts/probe-handoff-e2e.sh.
 #
-# A probe is the shipping app launched with `-baton.defaultsSuite <name>` (TBX-5162): its
+# A probe is the shipping app launched with `-baton.defaultsSuite <name>`: its
 # preferences live in that suite, its files under `Application Support/Baton Probes/<name>`,
 # and its Keychain secrets under `io.tonebox.secrets.probe.<name>`. Nothing here reads or
 # writes the owner's `io.tonebox.baton` domain, their Application Support, their Keychain
@@ -11,7 +11,7 @@
 
 PROBE_SUPPORT_ROOT="$HOME/Library/Application Support/Baton Probes"
 
-# ---- one probe run at a time on this machine (TBX-7383) --------------------------------------
+# ---- one probe run at a time on this machine --------------------------------------
 # Separate suites, ports and containers keep state apart, but the screen, the frontmost app and
 # the keyboard are shared: two agents running probe checks at once made each other fail (a
 # System Events click landing mid-launch of the other's probe) and put each other's windows in
@@ -34,7 +34,7 @@ probe_lock_acquire() {   # [$1 = timeout seconds; default $BATON_PROBE_LOCK_TIME
       return 0
     fi
     # Which lock directory this is (inode and birth time), read with the owner, so a reclaim
-    # can later prove it is still the same directory and not a fresh one (TBX-7388).
+    # can later prove it is still the same directory and not a fresh one.
     ident="$(stat -f '%i:%B' "$PROBE_LOCK" 2>/dev/null)"
     holder="$(cut -d' ' -f1 "$PROBE_LOCK/owner" 2>/dev/null)"
     who="$(cut -d' ' -f2- "$PROBE_LOCK/owner" 2>/dev/null)"
@@ -47,7 +47,7 @@ probe_lock_acquire() {   # [$1 = timeout seconds; default $BATON_PROBE_LOCK_TIME
       ownerless=0
     fi
     if [ -n "$ident" ] && { { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } || [ "$ownerless" -gt "$grace" ]; }; then
-      # Stale. Test-only: widen the gap between judging it stale and reclaiming it (TBX-7388).
+      # Stale. Test-only: widen the gap between judging it stale and reclaiming it.
       [ -n "${BATON_PROBE_LOCK_TEST_RECLAIM_DELAY:-}" ] && sleep "$BATON_PROBE_LOCK_TEST_RECLAIM_DELAY"
       reclaimed="$(probe_lock_reclaim "$ident" "$([ "$ownerless" -gt "$grace" ] && echo 1 || echo 0)")"
       [ -n "$reclaimed" ] && echo "probe lock: reclaimed a stale lock left by pid $reclaimed" >&2
@@ -72,7 +72,7 @@ probe_lock_acquire() {   # [$1 = timeout seconds; default $BATON_PROBE_LOCK_TIME
 #
 # The judgement and the removal used to be two steps (a `kill -0`, then a `mv`), so a second
 # waiter that judged the same dead lock could, a moment later, move aside the FRESH lock the
-# first waiter had just taken, and both runs drove the screen at once (TBX-7388). Now the
+# first waiter had just taken, and both runs drove the screen at once. Now the
 # removal runs in a critical section under `flock` on a side file, which the kernel releases if
 # the holder dies, so the section itself can never go stale; and inside it the directory must
 # still have the inode and birth time the caller read, and its owner must still be dead (or
@@ -106,7 +106,7 @@ probe_lock_release() {
   PROBE_LOCK_HELD=0
 }
 
-# Opt-in, immediate refusal without stale recovery (TBX-9558). Call directly in the
+# Opt-in, immediate refusal without stale recovery. Call directly in the
 # original Bash process, never through command substitution. Legacy APIs above are unchanged.
 PROBE_LOCK_NO_RECLAIM_HELD=0
 PROBE_LOCK_NO_RECLAIM_PROCESS=""

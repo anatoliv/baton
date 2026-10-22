@@ -305,6 +305,14 @@ struct WhatsNewView: View {
     /// shipping version — this list sat at 0.3.0 while 0.3.5 was on people's phones.
     static let releases: [ReleaseNote] = [
         ReleaseNote(
+            version: "1.5.11",
+            date: "October 2026",
+            highlight: "Ended album and playlist links keep their song count.",
+            changes: [
+                .init(.fixed, "An album or playlist link you ended still shows how many songs it had in Shared Links, instead of 0 songs."),
+            ]
+        ),
+        ReleaseNote(
             version: "1.5.10",
             date: "October 2026",
             highlight: "Downloads and podcasts pick up where you left off.",

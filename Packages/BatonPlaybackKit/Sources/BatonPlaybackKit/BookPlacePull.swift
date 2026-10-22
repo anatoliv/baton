@@ -1,12 +1,12 @@
 import Foundation
 
 /// Fetches the other device's newer place before a book's Play works out where to start
-///.
+///
 ///
 /// Each app pulls the shared ledger on launch, on coming to the front and on a ten-minute
 /// heartbeat. An app that simply stays in front never does the second, so with the Mac left
 /// frontmost while the phone played on, Play on the Mac started from the Mac's own older place
-/// (found by the TBX-10974 re-walk); the phone kept on screen had the same gap the other way.
+/// (found by the re-walk); the phone kept on screen had the same gap the other way.
 /// So Play on a book first runs the app's ordinary forced sync, then starts from the merged
 /// ledger.
 ///

@@ -61,7 +61,7 @@ enum MobileBookShelf {
 
         var id: String { documentID }
 
-        /// Where a book another device sent was really made (TBX-10985, TBX-11092): "Made on your
+        /// Where a book another device sent was really made: "Made on your
         /// Mac" for one the Mac made and uploaded, "Made on the Baton server" for one the home
         /// server rendered, so a row nobody made from this phone says where it came from.
         var originText: String? {

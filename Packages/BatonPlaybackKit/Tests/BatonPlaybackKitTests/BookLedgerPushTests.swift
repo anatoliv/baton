@@ -3,7 +3,7 @@ import XCTest
 @testable import BatonPlaybackKit
 
 /// A book's place goes to the other device when listening halts, in one debounced push
-///. Before this it waited for the next foreground or the ten-minute heartbeat.
+/// Before this it waited for the next foreground or the ten-minute heartbeat.
 @MainActor
 final class BookLedgerPushTests: XCTestCase {
     private var ledger = ClippingLedger()
@@ -87,7 +87,7 @@ final class BookLedgerPushTests: XCTestCase {
 
     /// The transport's ways of halting all reach a hook; the apps hang the push on them. The end
     /// of the queue is one: a book played to its end is when the finished mark has to travel, and
-    /// the TBX-10986 walk saw the Mac finish a book and push nothing until it next synced.
+    /// the walk saw the Mac finish a book and push nothing until it next synced.
     func testPauseStopAndTheEndOfTheQueueCallTheirHooks() {
         let controller = StreamingPlaybackController(defaults: UserDefaults(suiteName: ThrowawayDefaults.name("ledger-push"))!)
         var halted: [String] = []

@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-///  / SPEECH-01/02: a spoken summary must duck the music for the duration of the speaking
+/// An internal task/02: a spoken summary must duck the music for the duration of the speaking
 /// session and restore it after, and utterances must queue rather than cut each other off.
 @MainActor
 final class SpeechDuckingTests: XCTestCase {

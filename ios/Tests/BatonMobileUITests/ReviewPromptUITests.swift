@@ -32,7 +32,7 @@ final class ReviewPromptUITests: XCTestCase {
             "-uitestSkipSpeechAuthorization",
         ]
         // The three review-gate overrides go through the environment, not launchArguments.
-        // TBX-5326: a `-key value` pair in launchArguments does not reliably reach the
+        // A `-key value` pair in launchArguments does not reliably reach the
         // process at all. `-baton.review.countInDemo YES` first read back as false through
         // UserDefaults's argument domain; after that was fixed by reading a bare flag off
         // `ProcessInfo.processInfo.arguments` instead, repeated runs on this same simulator

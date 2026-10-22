@@ -13,7 +13,7 @@ import Foundation
 /// rules follow from that.
 ///
 /// **It must not allocate**, or the allocation calls it again and the recursion runs off the
-/// end of that thread's stack. This is not hypothetical. Until TBX-5373 the hook read
+/// end of that thread's stack. This is not hypothetical. Until an internal task the hook read
 /// `AllocationCounter.targetThread`, a Swift `static var`, to decide whether the allocating
 /// thread was the one being measured. In a debug build a `var` read compiles to
 /// `swift_beginAccess`, and on a thread that has never taken a dynamic exclusivity access

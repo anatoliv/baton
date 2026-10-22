@@ -7,7 +7,7 @@ import XCTest
 /// a leading `chevron.down` labelled "Minimize player" — a deliberate change and the right
 /// one, since nothing is committed when the player closes and "Done" was the wrong word.
 /// Four UI tests across three files were still waiting on "Done" to prove the player had
-/// opened. None of them was ever executed, so nobody found out (TBX-5173, TBX-5174).
+/// opened. None of them was ever executed, so nobody found out.
 ///
 /// The version of that failure worth remembering: `DurationVisualUITests` also used "Done"
 /// to *close* the player. When the tap found nothing the sheet stayed up, and every later
@@ -25,7 +25,7 @@ enum PlayerControls {
     /// lists first. Never tap that match: it is the artwork only while a cover is drawn, and
     /// otherwise the bar's Play/Pause button, which pauses instead of opening the player.
     /// That is how three tests failed on 2026-10-16 while book chapters had no cover, and
-    /// passed again once TBX-11064 gave them one. Use `tapMiniBar` instead,
+    /// passed again once an internal task gave them one. Use `tapMiniBar` instead,
     /// which taps the middle of the bar as a person would. That tap paused the music too,
     /// until the title was given the room up to the controls.
     static let miniBar = "NowPlayingBar"

@@ -79,7 +79,7 @@ extension MobileModel {
     /// removed, held here, so Restore never needs the home server's copy. "Everywhere" asks the
     /// home server to delete the book and tells the other devices through the shared ledger;
     /// removing it from this phone leaves the home server's copy, which the other devices adopt
-    ///, and keeps it hidden here.
+    /// and keeps it hidden here.
     func deleteBook(_ book: MobileBookShelf.Book, everywhere: Bool) async {
         await MobileBookShelf.delete(book, everywhere: everywhere, homeServer: books, cleanup: bookCleanup,
                                      ledger: clippings.ledger)

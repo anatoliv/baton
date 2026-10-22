@@ -22,7 +22,7 @@ enum ShareContactRelay {
     ///
     /// The exchange blocks in poll(2) for up to 5 s, so it runs on a thread of its own and the
     /// caller is resumed when it ends. On the cooperative pool, a few relays at once held the
-    /// threads the rest of the service, and the worker's callback into it, need (TBX-1000000496 D-8).
+    /// threads the rest of the service, and the worker's callback into it, need.
     static func forward(port: UInt16, path: String, body: Data) async throws -> ShareResponse {
         try await withCheckedThrowingContinuation { continuation in
             let thread = Thread {

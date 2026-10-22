@@ -136,7 +136,7 @@ struct AppAttestVerifier: Sendable {
     /// The task runs on a queue of its own rather than the cooperative pool. This caller waits on
     /// a pool thread, under the service lock, and so does every request queued behind that lock:
     /// with about core-count requests at once there was no pool thread left to run the validator,
-    /// and every attestation failed after a 5 s stall (TBX-1000000496 D-7).
+    /// and every attestation failed after a 5 s stall.
     static func validateChain(leaf: Certificate, intermediates: [Certificate], root: Certificate,
                               now: Date, nonceExtension: Bool = false) throws {
         guard intermediates.count <= 3, leaf != root else { throw AppAttestError.invalid }

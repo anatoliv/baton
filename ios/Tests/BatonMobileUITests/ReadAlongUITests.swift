@@ -183,7 +183,7 @@ final class ReadAlongUITests: XCTestCase {
         // owner reported it. Swipes go on into the chapter, then a little back. Tapping a
         // sentence seeks there and plays on, so the lit sentence moves while the test swipes
         // (about a second a chunk here): what Jump to current must show is whichever sentence
-        // is lit when it is pressed, which is what a listener sees (review of TBX-11038).
+        // is lit when it is pressed, which is what a listener sees (review of an internal task).
         for (round, swipes) in [[true, true, true], [true, true, true, true, false]].enumerated() {
             for up in swipes { if up { panel.swipeUp() } else { panel.swipeDown() } }
             let jump = app.buttons["Jump to current"].firstMatch
@@ -267,7 +267,7 @@ final class ReadAlongUITests: XCTestCase {
         removeUIInterruptionMonitor(monitor)
     }
 
-    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    /// Books has its own Library section since an internal task; the route is `BooksScreen`.
     private func openBooks() {
         BooksScreen.open(app)
     }

@@ -32,7 +32,7 @@ class SNSBoundaryTests(unittest.TestCase):
         self.identity = 'arn:aws:ses:us-east-1:000000000000:identity/batonmusic.app'
         self.url = 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-abc123.pem'
         self.now = datetime(2026, 10, 7, tzinfo=timezone.utc).timestamp()
-        # Main's adapter keeps the raw SNS message UUID as the event identity (TBX-9592).
+        # Main's adapter keeps the raw SNS message UUID as the event identity.
         self.event_id = '00000000-0000-4000-8000-000000000000'
         self.adapter = SNSFeedback(certificate=self.certificate.public_bytes(Encoding.PEM), certificate_url=self.url,
             fingerprint=self.certificate.fingerprint(hashes.SHA256()).hex(), topic=self.topic,

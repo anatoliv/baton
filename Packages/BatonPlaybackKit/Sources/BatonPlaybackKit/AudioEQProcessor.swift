@@ -143,7 +143,7 @@ public final class EQTapContext: @unchecked Sendable {
         // optimization, iterating a `Range` goes through `IndexingIterator` and its
         // unspecialized `Collection` witness, which heap-allocates once per element. Release
         // builds specialize that away, but a debug build is what a developer listens to, and
-        // this runs on the render thread for every sample of every buffer. (TBX-5360, same
+        // this runs on the render thread for every sample of every buffer. (same
         // finding as `EQCoefficients.refreshIfChanged` in PR #113.)
         var chIdx = 0
         while chIdx < activeChannels {

@@ -1,4 +1,4 @@
-// The album and playlist page (specs/collection-sharing.md, "The page"; TBX-1000000485): a /b/ link
+// The album and playlist page (specs/collection-sharing.md, "The page"): a /b/ link
 // whose stored kind is album or playlist, built from the book page (book.mjs) and its rules.
 // The key comes from the fragment and goes nowhere else: no request, no storage. The details are
 // fetched and the manifest authenticated before anything is shown, the cover included (it travels
@@ -303,7 +303,7 @@ async function admit() {
   const value = await json("/sessions", { method: "POST" }, false, 4096);
   const deadline = Date.parse(value?.expiresAt);
   // A session lasts as long as the link, which the sender can extend while this page is open, so a
-  // deadline later than the one the page loaded with is the link's new end (TBX-1000000495). No link
+  // deadline later than the one the page loaded with is the link's new end. No link
   // runs past 30 days from now; a day of slack covers a viewer whose clock runs behind the server's.
   if (!object(value) || !canonical(value.token, 32) || !Number.isFinite(deadline) || deadline <= Date.now() || deadline > Date.now() + 2678400000 ||
       !Number.isSafeInteger(value.remainingBytes) || value.remainingBytes < 0 ||

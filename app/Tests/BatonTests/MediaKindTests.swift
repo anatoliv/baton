@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-///  / STRUCT-06: the podcast-vs-library distinction is a single typed classifier
+/// The podcast-vs-library distinction is a single typed classifier
 /// (`MediaKind`), so stream resolution, resume routing, and the crossfade/scrobble guards
 /// all agree instead of each re-testing the id string.
 final class MediaKindTests: XCTestCase {

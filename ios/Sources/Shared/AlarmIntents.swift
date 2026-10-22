@@ -5,7 +5,7 @@ import AlarmKit
 #endif
 
 /// The buttons on an AlarmKit alert, in a file both the app and the widget extension compile
-/// (TBX-11171, specs/alarm-and-timer.md). The widget's Live Activity has to name the metadata
+/// The widget's Live Activity has to name the metadata
 /// type; only the app can do anything when a button is pressed, so the work goes through
 /// `AlarmIntentHandler`, which the app fills in at launch, the same way as `TransportIntentHandler`.
 @MainActor

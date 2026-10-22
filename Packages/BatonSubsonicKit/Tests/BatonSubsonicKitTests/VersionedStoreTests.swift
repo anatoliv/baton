@@ -69,7 +69,7 @@ final class VersionedStoreTests: XCTestCase {
     }
 
     /// A file that is there but cannot be read loaded as "nothing stored", and the next save
-    /// replaced it unread (TBX-1000000506, C2-22).
+    /// replaced it unread.
     func testAFileThatCannotBeReadIsNeverWrittenOver() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("vs-unreadable-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -96,7 +96,7 @@ final class VersionedStoreTests: XCTestCase {
     /// The refusal must outlast the unreadable moment. An iPhone launched in the background
     /// before first unlock reads nothing and starts empty; once the device unlocks the file is
     /// readable again, and the next save would write that empty start over data nobody read
-    /// (TBX-1000000506 review finding 1). A store that could not read its file writes again
+    /// A store that could not read its file writes again
     /// only after a load that did read it.
     func testAStoreThatNeverReadItsFileStillRefusesOnceTheFileIsReadable() throws {
         let url = directory.appendingPathComponent("latched.json")

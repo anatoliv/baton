@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-/// TBX-7352: with crash reporting on, Baton 0.19.6 froze the moment its menu bar menu opened.
+/// With crash reporting on, Baton 0.19.6 froze the moment its menu bar menu opened.
 ///
 /// `BatonApp.init` starts the crash-reporting SDK on a background queue. When that queue reached
 /// `NSApplication.shared` before the main thread did, AppKit initialised on the background thread
@@ -70,7 +70,7 @@ final class LaunchOrderTests: XCTestCase {
             """)
     }
 
-    /// TBX-7371: `@State private var music = MusicModel()` plus `appDelegate.music = music` in
+    /// `@State private var music = MusicModel()` plus `appDelegate.music = music` in
     /// `init()` built **two** models. SwiftUI's `@State` evaluates an initial-value expression
     /// lazily: the read inside `init()` forced it into a temporary (which the delegate kept), and
     /// installing the state ran it again for the scene. The MCP server, control socket, chat
@@ -105,11 +105,11 @@ final class LaunchOrderTests: XCTestCase {
 
     /// The invariant the bug broke, checked in this process: the main run loop's common modes
     /// include event tracking (a menu is open) and modal panel. A block scheduled for the common
-    /// modes runs only in a mode that is one of them, which is exactly the property TBX-7352 lost.
+    /// modes runs only in a mode that is one of them, which is exactly the property an internal task lost.
     /// `CFRunLoopPerformBlock` rather than `DispatchQueue.main` so the answer does not depend on
     /// whether this test method itself is running inside a main-queue callout.
     ///
-    /// It cannot reproduce TBX-7352's race here, but it fails if anything else ever leaves those
+    /// It cannot reproduce an internal task race here, but it fails if anything else ever leaves those
     /// modes out of the main run loop's common modes.
     @MainActor
     func testTrackingAndModalModesAreCommonModesOfTheMainRunLoop() {

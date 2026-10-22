@@ -35,7 +35,14 @@ while :; do
     fi
 done
 if python3 -B "$SCRIPT_DIR/mixtape_owned_lifecycle.py" --qualify-release "$OUTPUT"; then
-    probe_lock_release; gate_lock_release; exit "$RC"
+    probe_lock_release; gate_lock_release
+    # The qualified release, after both locks are let go.
+    # Read from the lock itself: released when its owner record no longer names this shell.
+    probe_released=false; [ "$(cut -d' ' -f1 "${PROBE_LOCK:-/nonexistent}/owner" 2>/dev/null)" != "$$" ] && probe_released=true
+    gate_released=false; [ -z "${GATE_LOCK_HELD:-}" ] && gate_released=true
+    { printf '{"qualified": true, "custodyReleaseQualified": true, "gateLock": "%s", "gateLockReleased": %s, "probeLock": "%s", "probeLockReleased": %s}\n' \
+        "${GATE_LOCK:-}" "$gate_released" "${PROBE_LOCK:-}" "$probe_released" > "$OUTPUT/native-lock-release.json"; } 2>/dev/null || true
+    exit "$RC"
 fi
 printf '%s\n' 'BLOCKED: composer fixture cleanup unqualified; gate/probe custody retained for coordinator. No numeric PID signalling.' >&2
 while :; do sleep 30; done

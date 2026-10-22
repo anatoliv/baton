@@ -6,7 +6,7 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
-/// The iPhone's Alarm and Timer (TBX-11171, specs/alarm-and-timer.md): the shared store and
+/// The iPhone's Alarm and Timer: the shared store and
 /// center, the system path for when Baton is not running (AlarmKit on iOS 26 and later, a
 /// notification before that), the alarm sound (`AlarmClipStore`) and the chime.
 @MainActor
@@ -52,9 +52,9 @@ final class MobileAlarms {
     }
 
     /// AlarmKit rings the chosen track's clip, else Baton's chime, else its own alarm sound
-    ///. `BATON_DEBUG_ALARM_SOUND=default` in a DEBUG build gives AlarmKit only its
+    /// `BATON_DEBUG_ALARM_SOUND=default` in a DEBUG build gives AlarmKit only its
     /// own sound: the iOS 26.5 simulator's SpringBoard aborts in ToneLibrary when it rings a named
-    /// sound, believed to be a simulator fault (the phone check is TBX-1000000075), so a simulator
+    /// sound, believed to be a simulator fault (the phone check is an internal task), so a simulator
     /// walk that lets an alarm ring sets it.
     /// Environment only.
     static var systemAlarmKitSoundOnly: Bool {

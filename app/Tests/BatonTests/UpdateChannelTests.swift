@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// : the update-channel liveness gate must be precise. A placeholder/empty key,
+/// The update-channel liveness gate must be precise. A placeholder/empty key,
 /// an http (non-TLS) feed, or a hostless URL is "not configured"; only a real https
 /// channel with automatic checks enabled counts as live.
 final class UpdateChannelTests: XCTestCase {
@@ -29,7 +29,7 @@ final class UpdateChannelTests: XCTestCase {
         XCTAssertFalse(UpdateChannel.isConfigured(publicKey: key, feedURL: feed, autoChecksEnabled: false))
     }
 
-    /// TBX-5306. Everything above uses a literal, so none of it would have noticed the
+    /// An internal task. Everything above uses a literal, so none of it would have noticed the
     /// shipped feed moving. This reads the value that is actually compiled into the app.
     ///
     /// The host is load-bearing in a way no other string here is: it is the only route to

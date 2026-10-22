@@ -4,7 +4,7 @@ import XCTest
 
 /// ffmpeg runs for as long as a chapter takes to encode. Waiting for it on a cooperative-pool
 /// thread held that thread for the whole run, so a few chapters at once left nothing to run the
-/// gateway's other work on (TBX-1000000496 D-19). The wait now happens on a thread of its own.
+/// gateway's other work on. The wait now happens on a thread of its own.
 final class FFmpegMuxerPoolTests: XCTestCase {
     func testEncodesWaitingOnFFmpegLeaveTheCooperativePoolFree() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ffmpeg-pool-\(UUID().uuidString)")

@@ -473,8 +473,8 @@ enum CrashReporting {
         case didNotEnable
     }
 
-    /// Starts the reporter and reports whether it actually came up (TBX-8557,
-    /// ported from MenuBurrow TBX-8547). `SentrySDK.start` cannot throw and,
+    /// Starts the reporter and reports whether it actually came up (
+    /// ported from MenuBurrow an internal task). `SentrySDK.start` cannot throw and,
     /// called off the main thread, finishes its setup asynchronously on the main
     /// queue, so success is judged by the result, not by the call returning.
     /// It fails when

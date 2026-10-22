@@ -2,7 +2,7 @@ import XCTest
 @testable import BatonPlaybackKit
 
 /// Resolved audio-focus handles were kept for good, one per spoken summary or dictation
-/// (TBX-1000000506, C1-24). They are kept for the time bound, to answer a repeated resume, and
+/// They are kept for the time bound, to answer a repeated resume, and
 /// then dropped by the periodic sweep.
 @MainActor
 final class AudioFocusRegistryPruneTests: XCTestCase {

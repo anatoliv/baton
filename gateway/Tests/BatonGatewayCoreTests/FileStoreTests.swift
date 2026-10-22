@@ -202,7 +202,7 @@ final class FileStoreTests: XCTestCase {
 
     /// Pending imports go last under the cap, but not after the file an upload has just written:
     /// that file was answered 201 and evicted in the same commit, so the other device's GET
-    /// found nothing (TBX-1000000493 review).
+    /// found nothing.
     func testTheFileJustCommittedSurvivesPendingImportsFillingTheCap() throws {
         let now = Date()
         try pendingImport(document: 4000, at: now)
@@ -270,7 +270,7 @@ final class FileStoreTests: XCTestCase {
         XCTAssertTrue(store.list().isEmpty)
     }
 
-    // MARK: - TBX-5325: a stored name is bounded on its own, not just by the header cap
+    // MARK: - A stored name is bounded on its own, not just by the header cap
 
     /// `name` comes straight off `X-Baton-Name`, whose only limit is the transport's 32 KB
     /// header cap — so an uncapped name would put up to 32 KB in every sidecar file and every

@@ -1,5 +1,5 @@
-/* Baton album and playlist page (TBX-1000000485), built from the book page (TBX-1000000132) and styled as
-   a music player. Brand tokens: Tonebox docs/design/app-family (TBX-11146), porcelain light and soft charcoal
+/* Baton album and playlist page, built from the book page and styled as
+   a music player. Brand tokens: Tonebox docs/design/app-family, porcelain light and soft charcoal
    dark with copper. --copper fills; --copper-ink is text-safe, and is also the fill behind text: white on
    --copper is 4.2:1 in light, white on --copper-ink 5.5:1. */
 :root {

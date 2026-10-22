@@ -249,7 +249,7 @@ struct OnboardingView: View {
     /// their server to go down.
     private var publicDemoURL: String {
         #if DEBUG
-        // Was `-uitestPublicDemoURL <url>` in `app.launchArguments`, read by index. TBX-5336:
+        // Was `-uitestPublicDemoURL <url>` in `app.launchArguments`, read by index. An internal task:
         // `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch
         // in four, so `ServerStatusUITests` now sets this through `app.launchEnvironment`.
         if let override = ProcessInfo.processInfo.environment["uitestPublicDemoURL"] {

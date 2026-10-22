@@ -4,7 +4,7 @@ import BatonSubsonicKit
 import XCTest
 @testable import BatonMobile
 
-/// Books on "Disconnect and delete my data" (TBX-1000000505 B-16). The purge left the Books
+/// Books on "Disconnect and delete my data". The purge left the Books
 /// records, the books hidden from this device, the deletes still owed to the old server and the
 /// covers, whatever Keep downloads said. Owner decision, 2026-10-21: with Keep downloads on, the
 /// downloaded books stay (audio, records, covers); with it off they go. Hidden-book marks and the

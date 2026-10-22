@@ -638,7 +638,7 @@ final class ReadAloudCoordinatorTests: XCTestCase {
     /// The Playback menu's Stop Speaking has to end a reading too, not only the sentence playing.
     /// It called `speech.cancel()` alone, which empties the engine's queue while the coordinator
     /// keeps rendering the next sentence straight back into it, so the article carried on
-    ///. The HUD's × learned this already; the menu had not.
+    /// The HUD's × learned this already; the menu had not.
     func testStopSpeakingFromThePlaybackMenuEndsAReading() async {
         let music = MusicModel()
         var requested: [String] = []
@@ -669,7 +669,7 @@ final class ReadAloudCoordinatorTests: XCTestCase {
 
     /// Replaying a past summary from Recent Summaries interrupts on purpose, and had the same
     /// hole as the menu's Stop Speaking: it cancelled the engine alone, and the reading went on
-    /// enqueuing sentences behind the replay (TBX-1000000504 review).
+    /// enqueuing sentences behind the replay.
     func testReplayingASpokenSummaryEndsAReading() async {
         let music = MusicModel()
         var requested: [String] = []
@@ -705,7 +705,7 @@ final class ReadAloudCoordinatorTests: XCTestCase {
     /// A resumed reading that nobody heard keeps its place. With no usable output device every
     /// clip now finishes at once (A-4), so the coordinator handed over the whole rest of the
     /// article, counted it read, and removed it from Resume, though not a word had played
-    /// (TBX-1000000504 review).
+    ///
     func testAResumedReadingNobodyHeardStaysInResume() async throws {
         SpeechAudioPlayer.startEngineOverride = { _ in throw NoOutputDevice() }
         defer { SpeechAudioPlayer.startEngineOverride = nil }
@@ -741,7 +741,7 @@ final class ReadAloudCoordinatorTests: XCTestCase {
     /// still being spoken. Its synthesis loop ends when the last chunk is *handed over*, up to
     /// two sentences before that chunk is heard, and the next reading used to start there:
     /// the HUD showed the new article over the old one's audio, and a Stop then saved the new
-    /// reading's place from the old one's highlight (TBX-1000000504, A-6). Real clips through
+    /// reading's place from the old one's highlight. Real clips through
     /// the real (muted) graph, because only a clip that takes time to play has a tail.
     func testTheNextReadingWaitsForThePreviousOnesTailBeforeTakingTheHUD() async throws {
         try XCTSkipIf(AudioOutputDevices.defaultOutputDeviceID() == 0,

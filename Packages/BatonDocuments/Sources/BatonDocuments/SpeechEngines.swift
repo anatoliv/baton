@@ -4,12 +4,12 @@ import FoundationNetworking
 #endif
 
 /// The voice engines a book can be read by, what each can do, and where each one is
-///.
+///
 ///
 /// Kokoro and Chatterbox were the only engines, named in a voice spec (`"kokoro:bf_emma"`).
 /// The third is any speech server that answers OpenAI's `POST /v1/audio/speech`, configured by
 /// base URL, a model name and an optional key. Its spec prefix is `openai`
-/// (`"openai:Ryan"`). Qwen3-TTS is the first target: in the TBX-11102 bake-off its narration
+/// (`"openai:Ryan"`). Qwen3-TTS is the first target: in the bake-off its narration
 /// had audiobook pace and more pitch movement than Kokoro's. Unlike Kokoro, it takes a
 /// natural-language instruction for how each line is delivered.
 public struct SpeechEngineEndpoint: Sendable, Equatable {
@@ -212,7 +212,7 @@ public enum SpeechEngines {
 // MARK: - Pacing
 
 /// The pauses an expressive engine is read with: one sentence per request, about
-/// 0.45 s between sentences and 0.9 s between paragraphs, the pacing the TBX-11102 bake-off
+/// 0.45 s between sentences and 0.9 s between paragraphs, the pacing the bake-off
 /// rendered its sentence-by-sentence files with. Kokoro keeps `DocumentSpeech.Pauses` (120 ms
 /// between its packed chunks), since its voice carries a sentence boundary itself.
 public enum SpeechPacing {

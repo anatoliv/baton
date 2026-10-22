@@ -1,4 +1,4 @@
-# W-21 allowlist: em and en dashes that are typography, not prose.
+# An internal task allowlist: em and en dashes that are typography, not prose.
 #
 # The lint beside this file (scripts/lint-prose-dashes.py) refuses an em dash (U+2014) or an
 # en dash (U+2012, U+2013) inside a string a user reads, because published copy here is
@@ -92,7 +92,7 @@ Packages/BatonPlaybackKit/Sources/BatonPlaybackKit/MusicDownloadStore.swift	let 
 Packages/BatonSubsonicModels/Sources/BatonSubsonicModels/Transcript.swift	.trimmingCharacters(in: CharacterSet(charactersIn: ".,!?\u{2026}\u{2014}- "))
 
 # A quotation is a caption, not a line of dialogue, when it ends without closing punctuation;
-# the escaped dashes are among the characters that count as closing it (TBX-10956).
+# the escaped dashes are among the characters that count as closing it.
 Packages/BatonDocuments/Sources/BatonDocuments/DocumentSpeech.swift	return !".,!?;:\u{2014}\u{2013}\u{2026}-".contains(last)
 
 # --- Generates a Swift comment, not prose --------------------------------------

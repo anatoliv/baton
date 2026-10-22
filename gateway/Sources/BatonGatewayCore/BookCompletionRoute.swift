@@ -5,7 +5,7 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// `POST /v1/books/complete` (TBX-10966, the contract is `BookCompletion` in BatonDocuments):
+/// `POST /v1/books/complete`:
 /// one book task answered by this gateway's own model, for a phone that reaches a model only
 /// through the home server.
 ///

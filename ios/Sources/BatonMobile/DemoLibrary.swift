@@ -109,7 +109,7 @@ enum DemoLibrary {
     /// letters to earn its threshold against the bundled library. The curated demo
     /// (Goldberg Variations, one artist) is what App Store reviewers and everyday users
     /// see; this only appears when `-baton.demoRailFixture` opts in, which only a test
-    /// does (TBX-5327 — the bundled library otherwise carries a single artist, which can
+    /// does (— the bundled library otherwise carries a single artist, which can
     /// never clear a positive rail threshold, so the rail test had to reach out to
     /// `demo.navidrome.org` and skip whenever that server was unreachable).
     /// Names span distinct first letters on purpose, since a rail needs letters, not rows.
@@ -127,7 +127,7 @@ enum DemoLibrary {
     /// resolves to local files.
     static func activate(_ model: MobileModel) {
         let catalogue = songs
-        // Was `-baton.demoRailFixture` in `app.launchArguments` (TBX-5336: XCUIApplication
+        // Was `-baton.demoRailFixture` in `app.launchArguments` (XCUIApplication
         // drops a whole `-key value` group about one launch in four); now `app.launchEnvironment`.
         let wantsRailFixture = ProcessInfo.processInfo.environment["baton.demoRailFixture"] != nil
         model.musicLibrary.seedDemo(

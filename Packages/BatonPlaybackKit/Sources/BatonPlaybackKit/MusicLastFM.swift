@@ -47,7 +47,7 @@ public final class MusicLastFM: ScrobbleDestination {
     /// Re-read the key, secret and session, for when storage changed underneath this object.
     ///
     /// Same reason as `MusicScrobbler.reload` and for the same event: a settings import
-    /// writes all three and this object read them at launch (TBX-5114, TBX-5123). It matters
+    /// writes all three and this object read them at launch. It matters
     /// most for `sessionKey`, because `isConnected` is derived from it — a stale empty one
     /// makes `checkSession()` answer `.missing` without a request, so the import would report
     /// "not connected" over a session it had just been handed.

@@ -1,7 +1,7 @@
 // Runs website/main.js in a stubbed browser and presses the hero demo's Play button.
 // Guards the ?patch= lookup: an inherited name such as "constructor" must fall back to
 // the default voicing rather than reach the audio graph with undefined settings
-// (TBX-1000000480). Run: node --test scripts/test-site-main.mjs
+// Run: node --test scripts/test-site-main.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

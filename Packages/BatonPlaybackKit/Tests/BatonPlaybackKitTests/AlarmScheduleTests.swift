@@ -4,7 +4,7 @@ import Foundation
 import XCTest
 @testable import BatonPlaybackKit
 
-/// When a Clock-style alarm or timer is due (TBX-11171, specs/alarm-and-timer.md): the next
+/// When a Clock-style alarm or timer is due: the next
 /// occurrence, repeat days, DST in both directions, a time zone change, one-off switch-off,
 /// snooze, the late grace and answering each occurrence once. Pure dates, so it runs the same on
 /// the Mac and on an iOS simulator.
@@ -207,7 +207,7 @@ final class AlarmScheduleTests: XCTestCase {
     }
 
     /// A system callback arriving long after the alarm (the Mac asleep through it) used to
-    /// answer it and play nothing, so it was never shown as missed (TBX-1000000506, C2-15).
+    /// answer it and play nothing, so it was never shown as missed.
     func testALateSystemCallbackLeavesTheAlarmToBeShownAsMissed() {
         let store = store()
         let a = alarm(7, 0)
@@ -219,7 +219,7 @@ final class AlarmScheduleTests: XCTestCase {
     }
 
     /// Stop at the system alert while a snooze was pending kept the snooze, which rang later
-    /// (TBX-1000000506, C2-16).
+    ///
     func testStopAtTheSystemAlertCancelsAPendingSnooze() {
         let store = store()
         let a = alarm(7, 0, repeats: AlarmRepeat.everyDay)
@@ -247,7 +247,7 @@ final class AlarmScheduleTests: XCTestCase {
     }
 
     /// Alarms this build cannot read (saved by a newer one, as `.radio` was added) are set aside,
-    /// not replaced by an empty list at the next edit (TBX-1000000480 C2-14).
+    /// not replaced by an empty list at the next edit.
     func testUnreadableAlarmsAreSetAsideNotOverwritten() {
         let defaults = ThrowawayDefaults.make("alarms.unreadable")
         let cal = calendar(newYork)

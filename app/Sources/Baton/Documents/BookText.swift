@@ -21,7 +21,7 @@ enum BookText {
     }
 
     /// The chapters' own words in Clippings, shaped the way both apps shape them
-    /// (`Recap.book(documentID:title:author:chapters:)`, shared with the iPhone, TBX-10963).
+    /// (`Recap.book(documentID:title:author:chapters:)`, shared with the iPhone).
     static func fromClippings(_ book: BookShelf.Book) -> PreparedBook? {
         Recap.book(documentID: book.documentID, title: book.title, author: book.author,
                    chapters: book.chapters.map {

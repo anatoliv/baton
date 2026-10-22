@@ -109,7 +109,7 @@ public enum DialogueCast {
 
     // MARK: - Rules
 
-    /// The verbs of a speech tag. The second group came from the held-out texts (G1, TBX-10894):
+    /// The verbs of a speech tag. The second group came from the held-out texts (G1):
     /// Austen's "returned" and "rejoined", Doyle's "ejaculated" and "interposed", Mansfield's
     /// "wailed", "drawled" and "snapped". Verbs that are as often an action ("turned", "smiled",
     /// "looked") stay out: a tag that is really an action would give the line to whoever acted.
@@ -122,7 +122,7 @@ public enum DialogueCast {
         + "groaned|sighed|wheezed|snarled|growled|demanded|inquired|enquired|suggested|warned|"
         + "faltered|persisted|pursued|mumbled|hissed|breathed|chuckled|laughed|says"
     /// Titles written with a full stop. Without them "said Mr. Bennet." ended at "Mr", so the
-    /// tag named nobody (G4's open point, fixed in TBX-10894).
+    /// tag named nobody (G4's open point, fixed in an internal task).
     static let titles = #"(?:Mr|Mrs|Ms|Messrs|Mme|Mlle|Dr|St|Sr|Jr|Prof|Rev|Capt|Col|Gen|Lt|Sgt|Hon)\."#
     static let tagAfter = try! NSRegularExpression(
         pattern: #"^[,.!?\u2014\s]*((?:\S+\s+){0,8}?)(?:"# + speechVerbs + #")\b\s*((?:"# + titles + #"|[^,.;:!?\u2014]){0,80})"#)
@@ -353,7 +353,7 @@ public enum DialogueCast {
                         // A beat about someone outside the exchange ("Mrs. Bennet deigned not
                         // to make any reply; but ... began scolding one of her daughters.")
                         // brings them in: the next line may be theirs, so the pair no longer
-                        // decides it (found on Austen once "said Mr. Bennet" was read, TBX-10894).
+                        // decides it (found on Austen once "said Mr. Bennet" was read).
                         if parties.count == 2,
                            units[u].1.contains(where: { m in mentions(spans[m].text, cast: cast).contains { !parties.contains($0) && !groupNames.contains($0) } }) {
                             last = nil; parties = []; distance = 0

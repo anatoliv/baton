@@ -22,7 +22,7 @@ let clippingsLog = Logger(subsystem: "io.tonebox.baton", category: "Clippings")
 /// So this file is only a list. The store, the model and the playback are all shared code that
 /// already existed and is already tested.
 ///
-/// Books made from documents have their own Library section, Books (`BooksView`, TBX-11018);
+/// Books made from documents have their own Library section, Books (`BooksView`);
 /// Clippings keeps the plain readings, which play one after another.
 struct ClippingsView: View {
     let model: MobileModel
@@ -98,7 +98,7 @@ struct ClippingsView: View {
         }
         .toolbar {
             // The sleep timer, here as well as in the full player, while something plays
-            //: a run of clippings is exactly what people fall asleep to.
+            // a run of clippings is exactly what people fall asleep to.
             if model.music.nowPlaying != nil || model.music.sleepTimerArmed {
                 ToolbarItem(placement: .topBarTrailing) {
                     SleepTimerMenu(model: model) { SleepTimerLabel(model: model) }

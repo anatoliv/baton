@@ -292,7 +292,7 @@ public enum LocalModelTest {
     public static let timeout: TimeInterval = 60
     /// Room for a reasoning model to think before it answers. LM Studio cannot be told to skip
     /// reasoning the way Ollama's `think: false` does, and at 64 tokens Qwen3 0.6B spent all of
-    /// them thinking and returned nothing; at 1,024 it answered after 64 (TBX-10858, measured
+    /// them thinking and returned nothing; at 1,024 it answered after 64 (measured
     /// 2026-10-15). A model that follows the instruction stops after a handful of tokens anyway.
     public static let maxTokens = 1_024
 
@@ -353,7 +353,7 @@ public enum KokoroPlacement: Equatable, Sendable {
     }
 
     /// The sentence the Kokoro row shows, given whether a Kokoro answers on this Mac and with
-    /// how many voices, and whether the Mac app's built-in voices (Kokoro on MLX, TBX-10854) are
+    /// how many voices, and whether the Mac app's built-in voices (Kokoro on MLX) are
     /// downloaded, which is what reads a book made on this Mac when no Kokoro server is set up.
     public func summary(localVoices: Int?, builtInVoicesReady: Bool = false) -> String {
         let local = localVoices.map { "A Kokoro is running on this Mac with \($0) voices." }

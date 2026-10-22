@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # One owner at a time for Baton's app-hosted Mac test host: the `mac-app-host` lock of
-# scripts/native-lock.sh, under its original names. (TBX-5291, TBX-11003)
+# scripts/native-lock.sh, under its original names.
 #
 # Source this file, call gate_lock_acquire with an owner kind and derived-data path, and
 # arrange for gate_lock_release from the caller's exit trap. Hold it only around what can

@@ -133,7 +133,7 @@ public enum LanguageGuess {
 // MARK: - Typography
 
 /// Punctuation the parsers match, built from scalars rather than written as string literals:
-/// the  lint (`scripts/lint-prose-dashes.py`) refuses an em dash in any string literal,
+/// the lint (`scripts/lint-prose-dashes.py`) refuses an em dash in any string literal,
 /// because in this repo a literal dash is almost always prose. These are not prose.
 enum Typography {
     static let emDash = Character(Unicode.Scalar(0x2014)!)

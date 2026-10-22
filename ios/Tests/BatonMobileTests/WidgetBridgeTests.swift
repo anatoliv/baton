@@ -61,7 +61,7 @@ final class WidgetBridgeTests: XCTestCase {
 
     /// The widget draws the cover from `artworkFile` and never reads the URL, and the URL is
     /// a signed Subsonic link whose query carries the account's user name and token. It had
-    /// no reason to sit in the App Group (TBX-1000000480 B-18).
+    /// no reason to sit in the App Group.
     @MainActor
     func testTheSignedArtworkURLStaysOutOfTheAppGroup() throws {
         defer { WidgetBridge.publish(song: nil, isPlaying: false, artworkURL: nil) }
@@ -77,7 +77,7 @@ final class WidgetBridgeTests: XCTestCase {
 
     /// Each publish fetches its cover in the background and wrote it back with the song it
     /// started with, so a cover that landed late put an older track, or the old play state,
-    /// back on the widget (TBX-1000000480 B-2).
+    /// back on the widget.
     @MainActor
     func testALateCoverDoesNotPutAnOlderTrackBack() async throws {
         let original = WidgetBridge.fetchArtwork
@@ -156,7 +156,7 @@ final class WidgetBridgeTests: XCTestCase {
     }
 
     /// Stopping playback ended only the card this launch held. A card from an earlier launch
-    /// (handle lost to a relaunch) stayed on the Lock Screen (TBX-1000000505 B-17).
+    /// (handle lost to a relaunch) stayed on the Lock Screen.
     func testStoppingEndsEveryRunningCardNotOnlyTheHeldOne() {
         XCTAssertEqual(WidgetBridge.activityIDsToEnd(held: nil, running: ["from-last-launch"]), ["from-last-launch"])
         XCTAssertEqual(WidgetBridge.activityIDsToEnd(held: "mine", running: ["mine", "orphan"]), ["mine", "orphan"])

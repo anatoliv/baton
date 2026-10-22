@@ -8,7 +8,7 @@ private let gatewayFilesLog = Logger(subsystem: "io.tonebox.baton", category: "G
 ///
 /// The first thing to cross is an exported reading, but nothing here knows what a reading is.
 /// Podcast episode audio and downloaded tracks would want the same road, and the repo already
-/// learned this lesson the expensive way with sync: TBX-2800 surveyed three transports for
+/// learned this lesson the expensive way with sync: an internal task surveyed three transports for
 /// podcast subscriptions and radio stations, and the answer was to ride the one that already
 /// existed rather than invent a second.
 ///

@@ -82,7 +82,7 @@ final class EngineSeekAndBoundaryTests: XCTestCase {
     // `testGaplessBoundaryHasNoSilentGap` used to live here: two servers, two tracks
     // scheduled back-to-back on one deck, and a 512-frame RMS scan proving the rendered
     // boundary carried no dropout. It is deleted with `rollIntoGaplessNext` (Stage 5 /
-    // TBX-2876) — the roll only ever fired for a multi-track queue, and production always
+    // An internal task) — the roll only ever fired for a multi-track queue, and production always
     // handed the engine exactly one track.
     //
     // What is lost, stated plainly: this was the only proof the engine's gapless boundary

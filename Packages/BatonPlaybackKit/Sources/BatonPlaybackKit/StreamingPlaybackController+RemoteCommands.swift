@@ -3,7 +3,7 @@ import BatonSubsonicKit
 import BatonSubsonicModels
 
 /// Media-key / Now Playing remote-command handling, extracted from `StreamingPlaybackController`
-///. When an internet-radio station is on air the library player is suspended, so a play/next
+/// When an internet-radio station is on air the library player is suspended, so a play/next
 /// key must drive the *radio* (via the `RadioRemote` closures `MusicModel` wires) rather than resume
 /// the library player over the live stream. Pure routing over the public transport API — no private
 /// state — so it's a clean extraction and directly unit-testable (see the remote-routing tests).

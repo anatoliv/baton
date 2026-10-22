@@ -3,7 +3,7 @@ import os
 
 // Pure equalizer DSP — parametric bands, RBJ peaking biquads, and the lock-protected coefficient
 // set the audio-thread tap reads. Foundation + os only, no app/UI/state dependencies. Extracted
-// from the Baton target as the first SPM module of the  boundary split; the app re-exports it
+// from the Baton target as the first SPM module of the boundary split; the app re-exports it
 // (`@_exported import BatonDSP`) so existing `EQBand`/`Biquad`/… call sites are unchanged.
 
 /// Equalizer parameter limits + the default band layout — pure config the DSP and the store share.

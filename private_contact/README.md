@@ -102,10 +102,10 @@ synthetic-only `ContactService`.
 
 `feedback_ingress.py` exposes only `/feedback` on a separate private Unix socket.
 The reviewed integration recipe reconstructs the allowlisted `63e4a33` worker,
-applies its exact runtime/CLI patch and overlays these modules. Since TBX-11094
+applies its exact runtime/CLI patch and overlays these modules. Since an internal task
 (October 17) that worker source is also in this tree, with both recorded patches
 applied, so main builds and tests it. The in-tree Python equals the recipe's
-`--with-backup` output except `recipient.py`, which carries the later TBX-9554 DNS
+`--with-backup` output except `recipient.py`, which carries the later an internal task DNS
 boundary fix; the recipe itself still reproduces the qualified artifact from
 `63e4a33`. The two `*.disabled.json` manifests stay pinned to the reviewed candidate
 `ae41af28`, which `gateway/deploy/private-contact/prepare.py` still accepts; a

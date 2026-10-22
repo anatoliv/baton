@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Baton
 
-/// TBX-5350: `VoiceInput` had no `deinit` and nothing stopped it when the friend view
+/// `VoiceInput` had no `deinit` and nothing stopped it when the friend view
 /// disappeared. Switching away mid-recording left the microphone, the `.playAndRecord`
 /// audio session and the audio-focus token live. A `.denied` state, once entered, never
 /// cleared after the user granted the permission back in System Settings.

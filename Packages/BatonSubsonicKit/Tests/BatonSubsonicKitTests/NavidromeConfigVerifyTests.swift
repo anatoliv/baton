@@ -5,7 +5,7 @@ import BatonSubsonicModels
 /// Pins `NavidromeConfig.verify`'s extensions probe: a classic Subsonic server (no
 /// OpenSubsonic support, so `getOpenSubsonicExtensions.view` 404s) must never present API
 /// key auth as broken — only as unavailable-or-unknown — and a 404 there must never turn an
-/// otherwise-working password login into a connect failure. TBX-5264.
+/// otherwise-working password login into a connect failure. An internal task.
 final class NavidromeConfigVerifyTests: XCTestCase {
     override func setUp() {
         super.setUp()

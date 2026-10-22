@@ -3,13 +3,13 @@ set -euo pipefail
 
 # Run BatonMobileUITests, and say honestly what happened.
 #
-# WHY THIS EXISTS (TBX-5165). `scripts/test.sh` filters the phone run to
+# WHY THIS EXISTS. `scripts/test.sh` filters the phone run to
 # `-only-testing:BatonMobileTests`, so the UI tests were compiled by every gate and executed
 # by none. The exclusion had a good reason — they drive a real app against Navidrome's public
 # demo server and take tens of minutes — but "somebody will run them by hand" turned out to be
 # worth exactly what it sounds like: `LiveFriendComposerCaptureTests`, the only thing in the
 # repo that photographs the Music Friend composer against a real model, sat broken for an
-# unknown period and was found by accident (TBX-5148). The one test of the least-testable
+# unknown period and was found by accident. The one test of the least-testable
 # screen in the product was the one test nothing watched.
 #
 # So they run here, and this runs on the **release** path rather than the merge path. That is
@@ -39,8 +39,8 @@ RESULTS="${UITEST_RESULTS:-$(mktemp -d -t baton-uitests)}/ui.xcresult"
 # `continue-after-failure` flag, because a quarantine you have to write a card for is one
 # somebody eventually empties. Anything not on it is expected to pass or to skip and say why.
 #
-# Empty, and the five entries it held were emptied rather than deleted: TBX-5173 and
-# TBX-5174 were both test rot, driven out by driving the app. The app was right on every
+# Empty, and the five entries it held were emptied rather than deleted: an internal task and
+# An internal task were both test rot, driven out by driving the app. The app was right on every
 # screen. See `PlayerControls.swift` for what had actually changed.
 QUARANTINE=()
 
@@ -66,7 +66,7 @@ fi
 # One run per simulator, and one writer for this DerivedData, each through its named lock
 # (scripts/native-lock.sh): a concurrent gate's iPhone step or another UI run on the same
 # device waits its turn instead of sharing it. Different devices and DerivedData run side by
-# side, so a Mac release can run while this one tests. (TBX-11003)
+# side, so a Mac release can run while this one tests.
 # shellcheck source=scripts/native-lock.sh
 . "$REPO/scripts/native-lock.sh"
 trap native_lock_release_all EXIT
@@ -96,7 +96,7 @@ xcodebuild build-for-testing "${ARGS[@]}" >"$BUILD_LOG" 2>&1 || {
 RUN=(-only-testing:BatonMobileUITests)
 if [ -n "$ONLY" ]; then
   # The first launch after install, spent before the suites asked for (AAAFirstLaunchPrimer,
-  # TBX-1000000045): on the iOS 27 simulator it can come up without its launch environment or
+  # An internal task): on the iOS 27 simulator it can come up without its launch environment or
   # not at all, and whichever test went first failed for it. The whole-target run has it already.
   RUN=(-only-testing:BatonMobileUITests/AAAFirstLaunchPrimer)
   IFS=',' read -ra WANTED <<<"$ONLY"

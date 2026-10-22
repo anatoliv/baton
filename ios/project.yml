@@ -16,7 +16,7 @@ options:
   # produces a project with no reference to either file, the prebuild step then writes two
   # files the app never bundles, and SettingsHelpLinkTests fails 2 of N in a way that reads
   # like a regression in whatever you just changed rather than a missing sync step
-  # (TBX-5330). See CLAUDE.md, "Cut the iPhone release from its own checkout".
+  # See CLAUDE.md, "Cut the iPhone release from its own checkout".
   preGenCommand: ./scripts/sync-help.sh
 
 packages:
@@ -56,7 +56,7 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "1.5.10"
+    MARKETING_VERSION: "1.5.11"
     CURRENT_PROJECT_VERSION: "1"
     # The 40-char lowercase-hex commit this build came from, baked into the app as the
     # BatonSourceCommit Info.plist key below. Empty here on purpose: an Xcode build or
@@ -65,7 +65,7 @@ settings:
     # xcodebuild command line (BATON_SOURCE_COMMIT=$(git rev-parse HEAD)), where it
     # outranks this, and ios/scripts/release-guard.sh refuses to upload any archive
     # whose baked value is missing, empty, unexpanded, abbreviated, uppercase or
-    # non-hex. (TBX-5102)
+    # non-hex.
     BATON_SOURCE_COMMIT: ""
     BATON_INTERNAL_DIAGNOSTICS: NO
     CRASH_REPORTING_DSN: ""
@@ -124,7 +124,7 @@ targets:
       # same thing on both apps and on every screen that shows one.
       - path: ../Shared/ServiceStatus.swift
       # Tells "the Keychain is locked" apart from "no password saved" in one place, so both
-      # apps say the same thing about it. See the type's own note (TBX-5268).
+      # apps say the same thing about it. See the type's own note.
       - path: ../Shared/KeychainLockedBanner.swift
       # Opt-in crash reporting and the visual design system (brand colour, WCAG contrast
       # math, artwork-palette extractor), shared verbatim. They used to be compiled out of
@@ -149,15 +149,15 @@ targets:
       # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
       - path: ../Shared/HomeServerBooks.swift
       - path: ../Shared/BookCovers.swift
-      # Read-along for a playing book, one view for both apps (TBX-10960).
+      # Read-along for a playing book, one view for both apps.
       - path: ../Shared/ReadAlongView.swift
-      # The voice picker, one for both apps: suggested voices, then every voice (TBX-11028).
+      # The voice picker, one for both apps: suggested voices, then every voice.
       - path: ../Shared/VoicePicker.swift
       # Clock-style Alarm and Timer, the screens and the notification path, one for both apps
-      # (TBX-11171, specs/alarm-and-timer.md).
+      #
       - path: ../Shared/AlarmViews.swift
       - path: ../Shared/AlarmNotifications.swift
-      # The share extension's inbox, read here when the app becomes active (TBX-10846).
+      # The share extension's inbox, read here when the app becomes active.
       - path: Sources/BatonShare/PendingShareInbox.swift
       - path: ../Shared/ReactionPushNotifications.swift
       - path: Sources/Shared
@@ -168,6 +168,9 @@ targets:
     preBuildScripts:
       - name: Sync Help guides
         basedOnDependencyAnalysis: false
+        # The environment dump would print every build setting into the release log,
+        # the Crashbox DSN included.
+        showEnvVars: false
         script: |
           set -e
           mkdir -p "$SRCROOT/Resources"
@@ -185,7 +188,7 @@ targets:
         # The CarPlay scene delegate is referenced via $(PRODUCT_MODULE_NAME), so
         # it follows this automatically.
         PRODUCT_MODULE_NAME: BatonMobile
-        # AlarmKit exists from iOS 26; weak, so the app still launches on iOS 18 (TBX-11171).
+        # AlarmKit exists from iOS 26; weak, so the app still launches on iOS 18.
         OTHER_LDFLAGS: "$(inherited) -weak_framework AlarmKit"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Brand orange (#E98345) as the global accent, so `.tint`/`Color.accentColor`
@@ -197,7 +200,7 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
       configs:
         Debug:
-          # Development-only physical App Attest acceptance (TBX-8711).
+          # Development-only physical App Attest acceptance.
           # Release keeps the ordinary entitlement file and production policy remains off.
           "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": BatonMobile.Debug.entitlements
     info:
@@ -206,7 +209,7 @@ targets:
         CFBundleDisplayName: Baton
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
-        # The exact source revision this bundle was compiled from (TBX-5102).
+        # The exact source revision this bundle was compiled from.
         #
         # Version strings are not an identity. Every commit carrying MARKETING_VERSION
         # 1.0 builds an app indistinguishable from every other, the build number is
@@ -229,7 +232,7 @@ targets:
         BGTaskSchedulerPermittedIdentifiers: [io.tonebox.baton.books.refresh]
         NSSupportsLiveActivities: true
         # AlarmKit's permission prompt (iOS 26 and later): Baton's alarms and timer ring as
-        # system alarms and play the chosen track when answered (TBX-11171).
+        # system alarms and play the chosen track when answered.
         NSAlarmKitUsageDescription: "Baton rings the alarms and timers you set, then plays the track, book or playlist you chose for them."
         # Export compliance, declared once here so every future build skips the
         # App Store Connect prompt. Baton uses only Apple-provided HTTPS/TLS and
@@ -331,7 +334,7 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
 
-  # "Baton" in the share sheet (TBX-10846): a document or a page's address, left in the App
+  # "Baton" in the share sheet: a document or a page's address, left in the App
   # Group inbox for the app to open on the import screen. Signed against "Baton Share App Store"
   # by ios/scripts/testflight.sh.
   BatonShare:

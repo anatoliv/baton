@@ -64,7 +64,7 @@ struct GatewayRoutes {
     /// probe is the whole reason this route is worth polling: without it `/health` can only
     /// say "a process is listening", which the TCP connection already said. What it adds is
     /// the distinction between a gateway that is up and one that is up and *blind* - the
-    /// state the whole of TBX-5068 was spent identifying by hand. What was unreasonable was
+    /// state the whole of an internal task was spent identifying by hand. What was unreasonable was
     /// the cost: an anonymous caller could park a request here for two minutes. One ping and
     /// at most two seconds is a fair price for the only signal the route carries, on a LAN
     /// service that is not exposed to the internet. If it ever is, the next step is a cached
@@ -194,7 +194,7 @@ struct GatewayRoutes {
         // `Request.bearerToken`, the same parse every other route uses. The hand-rolled
         // `replacingOccurrences(of: "Bearer ", with: "")` here was case-sensitive, so a
         // spec-legal `authorization: bearer <token>` was accepted on GET /v1/files and
-        // refused on this route (TBX-5308, S-F26).
+        // refused on this route.
         guard BatonMCPAuth.constantTimeEquals(request.bearerToken ?? "", token) else {
             return fail("401 Unauthorized", "bad token")
         }
@@ -250,7 +250,7 @@ struct GatewayRoutes {
             return httpErrorResponse(status: "400 Bad Request", message: "message is required")
         }
         // Which conversation this turn belongs to, so `music_similar_songs` seeds from *its*
-        // search rather than from whatever the last caller happened to look up (TBX-5308,
+        // search rather than from whatever the last caller happened to look up (
         // S-F26). Optional: a client that sends nothing shares one slot, which is the
         // behaviour it had before.
         let sessionID = json["session_id"] as? String
@@ -272,7 +272,7 @@ struct GatewayRoutes {
             // Serialised, not interpolated into a JSON literal. `RemoteNaturalLanguage.Failure`
             // carries the provider's own text, which reliably contains quotes and newlines, so
             // the body used to be invalid JSON, the phone fell back to a generic message, and
-            // "your credit balance is too low" never reached anybody (TBX-5308, S-F26).
+            // "your credit balance is too low" never reached anybody.
             return httpErrorResponse(status: "502 Bad Gateway", message: String(describing: error))
         }
     }

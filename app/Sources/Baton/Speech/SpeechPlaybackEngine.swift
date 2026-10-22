@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import Observation
 // The TTS config + synthesis layer (SpeechConfig, SpeechService, speechLog) is the third leaf
-// of the  module split. Re-exported so every existing call site stays unqualified; the
+// of the module split. Re-exported so every existing call site stays unqualified; the
 // playback engine + notifier stay in the app (they tie into MusicModel).
 @_exported import BatonSpeech
 
@@ -509,7 +509,7 @@ final class SpeechPlaybackEngine {
     }
     #endif
 
-    /// A notification's Play, for a summary staged as a clip (TBX-1000000504, A-8).
+    /// A notification's Play, for a summary staged as a clip.
     ///
     /// When the summary was also spoken at once, that play consumed and deleted the clip, and
     /// the notification's Play did nothing at all. Then: the cached audio if it is this summary,

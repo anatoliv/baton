@@ -109,7 +109,7 @@ final class EngineDeckBridgeTests: XCTestCase {
     /// `.error`; the host used to answer that by running its own identical ladder, each
     /// attempt reloading the deck and re-arming the engine's ladder underneath it. Counting
     /// connections is what makes this provable rather than a matter of opinion — the server
-    /// sees every fetch, so the multiplication has nowhere to hide. (§2.6 / TBX-2885)
+    /// sees every fetch, so the multiplication has nowhere to hide. (§2.6)
     func testADeadTrackCostsOneLadderNotTwoBeforeTheQueueMovesOn() async throws {
         let rig = try makeRig(
             payload: EngineTestSignals.sineWAV(frequency: 440, seconds: 30),
@@ -176,7 +176,7 @@ final class EngineDeckBridgeTests: XCTestCase {
         XCTAssertEqual(c.currentIndex, 0, "and it must not skip the track on a first failure")
     }
 
-    /// A host retry of the same track carries on the play it interrupted (TBX-1000000480 C1-9).
+    /// A host retry of the same track carries on the play it interrupted.
     /// It used to start it again: a second "track started" (history), a second scrobble with a
     /// new start time that ScrobbleService does not dedupe, and the listen split in two.
     func testAHostRetryOfTheSameTrackIsOnePlayNotTwo() async throws {
@@ -210,7 +210,7 @@ final class EngineDeckBridgeTests: XCTestCase {
     }
 
     /// A track that plays on the engine deck ends a failure run, as an AVPlayer item reaching
-    /// ready does (TBX-1000000480 C1-12). Without that, occasional dead tracks over a session
+    /// ready does. Without that, occasional dead tracks over a session
     /// added up until the auto-skip stopped skipping.
     func testATrackThatPlaysOnTheDeckClearsTheFailureCount() async throws {
         let rig = try makeRig(payload: EngineTestSignals.sineWAV(frequency: 440, seconds: 20))

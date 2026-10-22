@@ -295,7 +295,7 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(c.gaplessAdvanceCountForTesting, 1, "resume did not preload → boundary was a reload")
     }
 
-    ///  / PROD-01: with offline mode on, a non-downloaded track must NOT fall back to
+    /// With offline mode on, a non-downloaded track must NOT fall back to
     /// streaming — the previously-no-op toggle now actually suppresses the network.
     func testOfflineModeSuppressesStreaming() {
         UserDefaults.standard.set(true, forKey: StreamingPlaybackController.offlineModeKey)
@@ -309,7 +309,7 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(u.absoluteString, "https://cdn.example.com/ep.mp3")
     }
 
-    ///  / AUDIO-05: a media-key play while radio is on air must drive the radio, not resume
+    /// A media-key play while radio is on air must drive the radio, not resume
     /// the library player over the live stream (double audio).
     func testRemotePlayRoutesToRadioWhenOnAir() {
         let c = makeController()
@@ -332,7 +332,7 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(c.state, .playing)
     }
 
-    ///  / AUDIO-06: a stream-load failure retries the SAME track first (preserving place)
+    /// A stream-load failure retries the SAME track first (preserving place)
     /// instead of immediately skipping and cascade-skipping the queue on a brief outage.
     func testLoadFailureRetriesSameTrackBeforeSkipping() {
         let c = makeController()
@@ -357,7 +357,7 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(makeController().stallTimeoutSeconds, 30, "stall timeout must persist across launches")
     }
 
-    ///  / AUDIO-11: removing a selection that spans items BEFORE and including the current
+    /// Removing a selection that spans items BEFORE and including the current
     /// track must land on the current track's true successor, not skip past it.
     func testRemoveSpanningCurrentLandsOnSuccessor() {
         let c = makeController()
@@ -472,7 +472,7 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         func open() { opened = true; continuation?.resume(); continuation = nil }
     }
 
-    /// : a related-track fetch that completes AFTER the user cleared the queue must not
+    /// A related-track fetch that completes AFTER the user cleared the queue must not
     /// append its stale result onto the now-empty queue.
     func testStaleAutoplayFetchDoesNotAppendToAClearedQueue() async {
         let c = makeController()
@@ -486,7 +486,7 @@ final class StreamingPlaybackControllerTests: XCTestCase {
         XCTAssertTrue(c.queue.isEmpty, "a stale top-up must not repopulate a cleared queue")
     }
 
-    /// : the EQ tap must be attached to the gapless PRELOAD item (before it plays), not
+    /// The EQ tap must be attached to the gapless PRELOAD item (before it plays), not
     /// only the current item — otherwise the EQ silently switches off at the boundary.
     func testEQAttachesToGaplessPreloadItem() {
         let c = makeController()
@@ -858,7 +858,7 @@ final class StreamingPlaybackControllerTests: XCTestCase {
     }
 
     /// A second duck over a first must restore the level from before the first
-    /// (TBX-1000000480 C1-11). The first token is superseded, so its release does nothing; the
+    /// The first token is superseded, so its release does nothing; the
     /// second used to record the already-ducked level, and the volume stayed ducked for good.
     func testAudioFocusDuckOverADuckRestoresTheLevelBeforeTheFirst() {
         let c = makeController()

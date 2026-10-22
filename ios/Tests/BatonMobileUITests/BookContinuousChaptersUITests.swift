@@ -1,7 +1,7 @@
 import XCTest
 
 /// A book plays through its chapters even when only chapter 1 was on the phone at Play
-/// (TBX-10991, "If clip contains multiple chapters play all continuous").
+///
 ///
 /// On `FakeHomeServer`'s three-chapter book, with only chapter 1 ready when Play is pressed:
 /// chapter 2 is made while chapter 1 plays (it has to join the playing queue), and chapter 3 only
@@ -10,7 +10,7 @@ import XCTest
 ///
 /// Before the fix the queue was fixed at Play with the chapters already here, so the book stopped
 /// at the end of chapter 1. Every chapter change is printed with the wall clock as a
-/// `TBX-10991 timeline` line, which is the evidence of where it went and when.
+/// `an internal task timeline` line, which is the evidence of where it went and when.
 ///
 /// Demo mode, no network beyond loopback. Environment, never launch arguments.
 final class BookContinuousChaptersUITests: XCTestCase {
@@ -203,7 +203,7 @@ final class BookContinuousChaptersUITests: XCTestCase {
         removeUIInterruptionMonitor(monitor)
     }
 
-    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    /// Books has its own Library section since an internal task; the route is `BooksScreen`.
     private func openBooks() {
         BooksScreen.open(app)
     }

@@ -1,4 +1,4 @@
-// The mixtape page (/m/) through the same service and nginx as e2e.mjs: the TBX-1000000067 layout,
+// The mixtape page (/m/) through the same service and nginx as e2e.mjs: the layout,
 // the play flow, the session prompt, Previous/Next, reactions and ended links. Local fixtures only.
 // Material comes from make-mixtape-media.py (independent Python crypto, ffmpeg MP3s). The key is
 // fixed synthetic bytes, never printed, and only ever placed in the URL fragment.
@@ -53,7 +53,7 @@ export async function verifyMixtapePage({ browser, context, base, direct, api, e
   assert.equal(shell.status, 200);
   assert.equal(shell.headers.get("cache-control"), "no-store");
   // One Referrer-Policy, no-referrer: deploy/nginx/default.conf maps ^/m/ like ^/s/, and share-proxy.inc
-  // hides the service's own copy so the header is not sent twice (TBX-1000000079).
+  // hides the service's own copy so the header is not sent twice.
   assert.equal(shell.headers.get("referrer-policy"), "no-referrer", "one Referrer-Policy, the mixtape page's");
   assert.equal((await fetch(`${base}/m/${tape.id}`.replace(base, direct))).headers.get("referrer-policy"), "no-referrer", "the service says no-referrer");
   assert.equal(shell.headers.get("x-content-type-options"), "nosniff");
@@ -204,7 +204,7 @@ export async function verifyMixtapePage({ browser, context, base, direct, api, e
   }
 
   // The transport's 503 "capacity" refuses before the service runs, so it charges nothing: the page
-  // keeps its session and asks for no new listen (TBX-1000000495 D-3). Fulfilled in the browser,
+  // keeps its session and asks for no new listen. Fulfilled in the browser,
   // exactly as the transport answers it.
   step("mixtape page: a capacity 503 on admission or a track spends no play and keeps the session");
   const busyTape = await mint(3);

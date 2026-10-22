@@ -217,7 +217,7 @@ final class HomeServerBooksPhoneTests: XCTestCase {
     }
 
     /// After a relaunch the Clippings store has not read its folder yet when the first refresh
-    /// asks the home server. A chapter already here must still count as here: before TBX-10975
+    /// asks the home server. A chapter already here must still count as here: before an internal task
     /// the first ready chapter of the first book was downloaded again and kept twice, because
     /// the "already here?" lookup ran against the unread store (seen on the simulator walk).
     func testAChapterAlreadyHereIsNotCollectedAgainAfterARelaunch() async throws {
@@ -347,7 +347,7 @@ final class HomeServerBooksPhoneTests: XCTestCase {
                       defaults: UserDefaults(suiteName: ThrowawayDefaults.name(name))!)
     }
 
-    /// The literal TBX-10974 path: a book made on the home server from the Mac shows on the
+    /// The literal an internal task path: a book made on the home server from the Mac shows on the
     /// phone without importing anything, under the job the Mac made, and its chapters come down
     /// with their words, filed under the Mac's document id.
     func testABookTheMacSentIsAdoptedWithoutResubmittingItAndItsChaptersComeDown() async throws {
@@ -394,7 +394,7 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         XCTAssertFalse(fake.seen.contains { $0.hasPrefix("PUT") })
     }
 
-    /// TBX-11063: Read Along asks the home server for a chapter's timing when none was kept with
+    /// Read Along asks the home server for a chapter's timing when none was kept with
     /// it, and keeps what it gets under the chapter's audio for good. It must be the timing of
     /// *that* audio. Right after launch no summary has been read yet, and an unknown summary used
     /// to count as a match, so a chapter whose audio on the server had since changed (made again
@@ -434,7 +434,7 @@ final class HomeServerBooksPhoneTests: XCTestCase {
         XCTAssertNil(again.readAlong.load(forAudio: SHA256Digest.hex(of: here)), "nor kept under this audio")
     }
 
-    /// TBX-11017: a book the Mac made with its own voices and uploaded is adopted like one made
+    /// A book the Mac made with its own voices and uploaded is adopted like one made
     /// on the home server: listed while its chapters are still arriving, each chapter coming
     /// down once with its own audio and read-along timing as it lands, nothing sent from the
     /// phone, and Play starting at the Mac's place, which travels by document id.
@@ -620,7 +620,7 @@ final class HomeServerBooksPhoneTests: XCTestCase {
                       DocumentImportScreen.estimateLine(ListeningEstimate(document)))
     }
 
-    /// TBX-10916, the shared rule on the phone's build: Heart or Emma only when the voice list is
+    /// An internal task, the shared rule on the phone's build: Heart or Emma only when the voice list is
     /// known and has them. The phone's import passes none (the home server does not list its
     /// voices), so it keeps the configured default.
     func testTheEnglishNarratorDefaultNeedsAKnownVoiceList() {

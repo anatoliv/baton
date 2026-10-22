@@ -104,7 +104,7 @@ final class EngineRestartAfterInterruptionTests: XCTestCase {
         // five places that assign it — so the load-bearing part is that there *is* an
         // observer block, and nothing else about the declaration.
         //
-        // This is the test that started TBX-2879. It matched `"private var engineOwnsPlayback
+        // This is the test that started an internal task. It matched `"private var engineOwnsPlayback
         // = false {"`, and making the property `public private(set)` so the UI could observe
         // ownership (§3.1) turned it red with the message "metering will run forever again"
         // — which was false; the observer had not moved by a line. It then also read

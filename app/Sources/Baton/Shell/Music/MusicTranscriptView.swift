@@ -23,7 +23,7 @@ struct MusicTranscriptView: View {
     /// It stops the moment the reader scrolls, and only resumes when they ask. Following by
     /// default is right while you listen along; continuing to follow after someone has scrolled
     /// away is what made the pane unusable, because the highlight moves several times a second
-    /// and each move dragged the list back. See TBX-2986.
+    /// and each move dragged the list back. See an internal task.
     @State private var isFollowing = true
 
     private var transcript: Transcript? {

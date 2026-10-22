@@ -76,7 +76,7 @@ final class PendingImportRelayTests: XCTestCase {
     }
 
     /// The Mac reads the page itself and needs no fragment, and a fragment can be a key: a Baton
-    /// share link's is the song's (TBX-1000000505 B-6). It never reaches the gateway.
+    /// share link's is the song's. It never reaches the gateway.
     func testALinkTravelsWithoutItsFragment() async throws {
         let relay = PendingImportRelay(files: gateway.files, settle: .milliseconds(50))
         let sent = try await relay.send(link: URL(string: "https://example.com/essay?page=2#a-secret")!, title: "An essay", fromDevice: "iPhone")
@@ -150,7 +150,7 @@ final class PendingImportRelayTests: XCTestCase {
 
     /// The gateway's own bounds can remove the document before the Mac collects it: the age
     /// limit, or cap eviction, which takes the document first because it was stored first
-    ///. The record is still there, so the Mac must be told the document is
+    /// The record is still there, so the Mac must be told the document is
     /// gone, not handed a plain 404 it would retry every minute.
     func testADocumentTheGatewayAlreadyRemovedReadsAsMissing() async throws {
         let phone = PendingImportRelay(files: gateway.files, settle: .milliseconds(50))

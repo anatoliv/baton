@@ -91,7 +91,7 @@ it on a mounted volume.
 `deploy/compose.yml` does exactly that: `BATON_STATE_FILE=/var/lib/baton-gateway/baton-state.json`,
 which is the named volume, and the parked files sit beside it because `filesDirectory` is derived
 from that path. **This was missing until 2026-09-09 and the compose comment claimed otherwise**
-: the state file was landing in the container's writable layer, so
+the state file was landing in the container's writable layer, so
 `docker compose up --force-recreate` — which is how `deploy.sh` starts the gateway, and the only
 way a rotated token takes effect — destroyed the shared settings and every file in flight on every
 deploy. Nobody noticed because both devices simply re-seed the document afterwards. `deploy.sh`

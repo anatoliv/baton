@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# scripts/backup-repo.sh against a local bare remote. (TBX-8430)
+# scripts/backup-repo.sh against a local bare remote.
 #
 # WHY THIS EXISTS. The backup was a bare `git push --all`. When this checkout's `main` sat
 # behind origin/main (work had landed from a worktree), the push rejected it as
@@ -83,7 +83,7 @@ if backup; then bad "diverged branch: exit 0, should fail"; else ok "diverged br
 grep -q 'diverged' "$WORK/err" && ok "says the branch diverged" || bad "no 'diverged' message"
 [ "$(remote_tip refs/heads/main)" = "$ahead" ] && ok "remote main preserved" || bad "remote main rewritten"
 
-# 4. A tag that moved after it was backed up (TBX-1000000503 F-5). A re-publish force-moves
+# 4. A tag that moved after it was backed up. A re-publish force-moves
 #    v<version> on origin; the private backup still holds the old one, and a plain
 #    `git push --tags` was rejected ("already exists") on every run after that, so the daily
 #    backup stopped checking in. Owner decision 2026-10-21: skip the moved tag with a warning

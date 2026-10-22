@@ -14,7 +14,7 @@ public protocol SpeechSynthesizing: Sendable {
     /// ignores the style, so a synthesizer that has no use for it need not change.
     func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?) async throws -> Data
     /// The same with a delivery instruction, for engines that take one (an OpenAI-compatible
-    /// server such as Qwen3-TTS, TBX-11142). The default drops the instruction, so a
+    /// server such as Qwen3-TTS). The default drops the instruction, so a
     /// synthesizer that has no use for it need not change; one that forwards to another must
     /// implement this, or the instruction is lost on the way.
     func synthesize(text: String, voice: String, speed: Double?, style: SpeechStyle?, instruction: String?) async throws -> Data
@@ -100,7 +100,7 @@ public enum SynthesisError: Error, Equatable, CustomStringConvertible {
 
 /// The OpenAI-compatible speech endpoint, the same request `BatonSpeech.SpeechService` makes on
 /// the Mac: `{model, voice, input, response_format: "wav"}`. One base URL per engine; an
-/// expressive server (`openai`, TBX-11142) also has its model, an optional key, and is sent
+/// expressive server (`openai`) also has its model, an optional key, and is sent
 /// each line's delivery instruction.
 public struct HTTPSpeechSynthesizer: SpeechSynthesizing {
     public let engines: [String: URL]
@@ -247,7 +247,7 @@ public enum WAV {
 
     /// The PCM without the silence a clip starts and ends with, keeping 30 ms either
     /// side so no word is clipped: what is quieter than 45 dB below the clip's loudest 10 ms
-    /// counts as silence, the rule the TBX-11102 bake-off measured its pauses with. An expressive
+    /// counts as silence, the rule the bake-off measured its pauses with. An expressive
     /// engine pads each sentence differently, so without this the pause heard between sentences
     /// would be the inserted 0.45 s plus whatever the engine added. PCM 16-bit and 32-bit float
     /// only; any other format, or a clip with no sound, comes back as it was.
@@ -758,7 +758,7 @@ public actor BookRenderer {
     /// Returns the duration in seconds and where each segment's speech starts and ends in it,
     /// for read-along: a segment read sentence by sentence spans all its sentences. The chapter
     /// takes its first clip's format, and a clip in another (a cast whose voices come from
-    /// different engines, TBX-11141) is converted to it; only a clip in a format `WAV.converting`
+    /// different engines) is converted to it; only a clip in a format `WAV.converting`
     /// does not read is refused, naming its voice, rather than garbled.
     nonisolated func joinWAV(segments: [SpeechSegment], book: PreparedBook, format bookFormat: BookFormat? = nil,
                              to destination: URL) throws -> (seconds: Double, timing: ReadAlongTiming) {

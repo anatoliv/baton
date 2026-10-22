@@ -5,7 +5,7 @@ import SwiftUI
 import WidgetKit
 
 /// The Lock Screen and Dynamic Island for a Baton alarm's snooze and a running timer
-/// (TBX-11171, specs/alarm-and-timer.md). AlarmKit draws its own alert; a countdown or a paused
+/// AlarmKit draws its own alert; a countdown or a paused
 /// timer is drawn by the app's Live Activity for `AlarmAttributes<BatonAlarmMetadata>`.
 @available(iOS 26.0, *)
 struct AlarmLiveActivity: Widget {

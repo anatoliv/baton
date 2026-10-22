@@ -152,7 +152,7 @@ final class AgentDocumentationTests: XCTestCase {
     /// made once and on the record, rather than an omission nobody noticed.
     /// Sections of `HELP.md` that stay off `website/help.html`, each with the reason.
     ///
-    /// The two surfaces are hand-written and stay that way: TBX-5064 settled that on
+    /// The two surfaces are hand-written and stay that way: an internal task settled that on
     /// 2026-09-07, against generating either page from the other. The measurement behind
     /// the decision was that 33 of 44 sections were already covered and the 11 below each
     /// had a reason, so the "637 lines against 2492" gap is depth rather than coverage.
@@ -171,7 +171,7 @@ final class AgentDocumentationTests: XCTestCase {
         // This once read as settled and was not: it said "large enough to want its own
         // page", which implies a page that does not exist. Measured 2026-09-07: the music
         // friend is covered, on the landing page rather than here. Transcripts and
-        // Clippings, the other two gaps, got sections on the public page in TBX-1000000481.
+        // Clippings, the other two gaps, got sections on the public page in an internal task.
         "The music friend": "covered on the landing page instead; see coveredElsewherePublicly, "
             + "which checks that claim rather than repeating it",
         "Settings reference": "an exhaustive reference belongs in the bundled guide, not the shop window",

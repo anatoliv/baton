@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Prints the xcodebuild setting a Mac build of Baton needs for MLX's shaders (TBX-10854), or
+# Prints the xcodebuild setting a Mac build of Baton needs for MLX's shaders, or
 # nothing. With Xcode's Metal Toolchain component installed, Xcode compiles MLX's .metal sources
 # and nothing is needed. Without it, compiling them fails, so the build leaves them out and the
 # app target's "Bundle MLX shaders" phase supplies MLX's published metallib instead

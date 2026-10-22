@@ -5,7 +5,7 @@ import BatonSubsonicModels
 /// ReplayGain loudness-normalization math, extracted from `StreamingPlaybackController`.
 /// Pure, side-effect-free functions of a track's ReplayGain tags + the loudness mode + pre-amp —
 /// no player, queue, or actor state — so they're unit-tested directly (see
-/// `LoudnessAdvanceCharacterizationTests`, ) and safe to reason about in isolation. They stay
+/// `LoudnessAdvanceCharacterizationTests`) and safe to reason about in isolation. They stay
 /// static members of the controller (via this extension) so `Self.loudnessMultiplier(...)` /
 /// `Self.normalizationGain(...)` call sites are unchanged.
 extension StreamingPlaybackController {

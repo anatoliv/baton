@@ -26,7 +26,7 @@ private final class StreamPeer: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-/// The collection composer's pieces that need the app (specs/collection-sharing.md, TBX-1000000485):
+/// The collection composer's pieces that need the app (specs/collection-sharing.md):
 /// the draft's kind, the planner's view of a song, and fetching one track as M4A.
 final class CollectionShareTests: XCTestCase {
     private var root: URL!

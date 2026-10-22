@@ -4,7 +4,7 @@ import Foundation
 import Observation
 import OSLog
 
-// Clock-style Alarm and Timer that play a chosen Baton item (TBX-11171, specs/alarm-and-timer.md).
+// Clock-style Alarm and Timer that play a chosen Baton item.
 //
 // This file is the part both apps agree on: what an alarm and a timer are, when one is next
 // due, what it plays, and the store that keeps them. How each platform makes the time arrive
@@ -17,7 +17,7 @@ public struct AlarmChoice: Codable, Equatable, Sendable {
     public enum Kind: String, Codable, Sendable { case song, queue, book, album, playlist, radio }
 
     /// An internet radio station, which plays through the radio engine rather than the queue
-    ///. Kept whole so the alarm needs no station list to tune in.
+    /// Kept whole so the alarm needs no station list to tune in.
     public struct Station: Codable, Equatable, Hashable, Sendable {
         public var id: String
         public var name: String

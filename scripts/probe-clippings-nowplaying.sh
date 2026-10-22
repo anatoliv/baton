@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Clippings now-playing walk (TBX-10990), on a probe instance, never the owner's Baton:
+# The Clippings now-playing walk, on a probe instance, never the owner's Baton:
 #
 #   scripts/probe-clippings-nowplaying.sh <Baton.app> <evidence-dir>
 #
@@ -18,8 +18,8 @@
 #
 # Exit 0 PASS, 1 FAIL, 2 could not run, 3 another probe holds the lock (probe-lib.sh).
 #
-# Since TBX-11018 a book's chapters are in Books, not in Clippings, so the chapter steps (B, C)
+# Since an internal task a book's chapters are in Books, not in Clippings, so the chapter steps (B, C)
 # moved to scripts/probe-books-section.sh, which walks Clippings, Books, an open book and the bars
-# on a playing chapter. This name is kept so the TBX-10990 evidence and older notes still lead
+# on a playing chapter. This name is kept so the evidence and older notes still lead
 # somewhere; it runs that walk.
 exec "$(dirname "$0")/probe-books-section.sh" "$@"

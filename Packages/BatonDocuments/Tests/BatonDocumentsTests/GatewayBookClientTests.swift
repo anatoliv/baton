@@ -52,7 +52,7 @@ final class GatewayBookClientTests: XCTestCase {
         XCTAssertEqual(try PreparedBook.decode(XCTUnwrap(r.httpBody)), b)
     }
 
-    /// TBX-10962: `GET /v1/voices` with the token, read into specs and languages; an older
+    /// `GET /v1/voices` with the token, read into specs and languages; an older
     /// gateway's 404 comes back as that 404, which the phone takes as "keep today's default".
     func testVoicesAreReadAndAnOlderGatewaysNotFoundIsReported() async throws {
         let recorder = Recorder()
@@ -231,7 +231,7 @@ final class AudiobookExportTests: XCTestCase {
         XCTAssertEqual(AudiobookExport.chapterFiles(j), ["chapter-1.m4a", "chapter-2.m4a"])
     }
 
-    /// TBX-10845: marks move onto the joined lengths, titles kept; a count mismatch changes nothing.
+    /// Marks move onto the joined lengths, titles kept; a count mismatch changes nothing.
     func testMarksArePlacedOnTheMuxedLengths() {
         let rendered = [AudiobookExport.Mark(title: "One", start: 0, end: 2), AudiobookExport.Mark(title: "Two", start: 2, end: 5),
                         AudiobookExport.Mark(title: "Three", start: 5, end: 6.5)]

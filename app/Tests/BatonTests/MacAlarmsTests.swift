@@ -4,7 +4,7 @@ import SwiftUI
 import XCTest
 @testable import Baton
 
-/// The Mac's in-app Alarm and Timer (TBX-11171, specs/alarm-and-timer.md). macOS has no AlarmKit
+/// The Mac's in-app Alarm and Timer. macOS has no AlarmKit
 /// for apps, so Baton's own clock is the alarm: a timer set through the Mac's `MacAlarms` ends,
 /// the app's real player plays the chosen track, the floating ringing card comes up over every
 /// Space, and Stop pauses the music and takes the card down. No notification is scheduled here.
@@ -71,7 +71,7 @@ final class MacAlarmsTests: XCTestCase {
 
     /// Two chimes at once (an alarm and a timer together, or two alarms whose songs are missing)
     /// must not leave the first one looping after Stop. The second chime used to replace the
-    /// first without stopping it, and Stop only reached the newest (TBX-1000000498, A-21).
+    /// first without stopping it, and Stop only reached the newest.
     /// Real `NSSound`s on a silent file, kept by the test so a dropped one can still be asked.
     func testASecondChimeStopsTheFirstAndStopLeavesNoneRinging() throws {
         let model = MusicModel(environment: .testing)
@@ -138,7 +138,7 @@ final class MacAlarmsTests: XCTestCase {
         // the panel holds the card, and the card is tall enough for its three answers.
         let panel = try XCTUnwrap(NSApp.windows.first { $0 is NSPanel && $0.isVisible && $0.level == .floating })
         let card = try XCTUnwrap(panel.contentView)
-        // About 322 pt with all three; without Snooze it would be about 283 (TBX-1000000478 took
+        // About 322 pt with all three; without Snooze it would be about 283 (took
         // the title bar's empty band, about 33 pt, out of the card's height).
         XCTAssertGreaterThan(card.fittingSize.height, 300, "Keep playing, Snooze and Stop need the room: \(card.fittingSize)")
         XCTAssertTrue(AlarmCenter.offersSnooze(try XCTUnwrap(alarms.center.ringing)), "a timer's card offers Snooze")

@@ -134,7 +134,7 @@ enum ScreenTextOCR {
     /// position first and reading left to right is correct for one column and reads *across the
     /// gutter* on two, producing fluent sentences assembled from alternating halves. That failure
     /// sounds like a broken recogniser rather than a broken sort, so it is the kind that survives
-    /// (TBX-3830: a two-column page is exactly what "a PDF reads in the right order" means).
+    ///
     static func assemble(_ pieces: [Piece]) -> String {
         guard !pieces.isEmpty else { return "" }
         return assembleBlock(pieces, depth: 0)

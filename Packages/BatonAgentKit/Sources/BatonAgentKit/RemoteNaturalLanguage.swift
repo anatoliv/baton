@@ -187,7 +187,7 @@ public enum RemoteNaturalLanguage {
         // ordinary registrable domain someone else can own and point wherever they like —
         // and this predicate's whole job is deciding whether it is safe to send a key over
         // plain HTTP. Found by the test that was written to prove the two copies agree
-        //; they agreed, and both were wrong about this.
+        // they agreed, and both were wrong about this.
         let parts = h.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return false }
         var octets: [Int] = []

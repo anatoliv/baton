@@ -261,7 +261,7 @@ def test_compare():
     check(verdict == module.DRIFT and "name" in drifted,
           "compare: a new version does not excuse drift in the app-scoped fields")
 
-    # TBX-1000000480 B-13: save() opened the file for writing (truncating it) and then
+    # save() opened the file for writing (truncating it) and then
     # serialised into it, so a failure part-way left a half-written listing on disk.
     with tempfile.TemporaryDirectory() as directory:
         target = os.path.join(directory, "en-US.json")
@@ -362,7 +362,7 @@ def main() -> int:
             expect_in=["patched appInfoLocalizations", "patched appStoreVersionLocalizations"])
         check(len(Mock.patches) == 2, "push made exactly two PATCHes")
 
-        # TBX-1000000480 B-13: the first PATCH lands and the second fails. The snapshot has
+        # The first PATCH lands and the second fails. The snapshot has
         # to record the first, or the next check calls Baton's own write drift and refuses.
         Mock.values, Mock.patches = dict(LIVE), []
         Mock.fail_patch = "appStoreVersionLocalizations/VLOC"
@@ -389,7 +389,7 @@ def main() -> int:
             "--force pushes anyway", expect_in=["patched"])
 
         print("\n-- a newly created App Store version --")
-        # TBX-3928, 2026-09-07: creating the 1.1 version record put Apple on a version the
+        # 2026-09-07: creating the 1.1 version record put Apple on a version the
         # snapshot had never seen, with an empty promotional text because Apple does not
         # carry that field forward. `check` called it DRIFT and `push` refused, which in a
         # release means `testflight.sh` aborts on a false accusation. These four run the

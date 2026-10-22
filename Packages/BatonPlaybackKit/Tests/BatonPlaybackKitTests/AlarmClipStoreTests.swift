@@ -96,7 +96,7 @@ final class AlarmClipStoreTests: XCTestCase {
     }
 
     /// A server behind a header-checking proxy: the stream is fetched with the server's extra
-    /// headers, as the player fetches it (TBX-1000000410 review).
+    /// headers, as the player fetches it.
     func testAStreamIsFetchedWithTheServersHeaders() async throws {
         StubStream.body = try Data(contentsOf: fixture())
         StubStream.requiredHeader = ("X-Proxy-Key", "k1")

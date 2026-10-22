@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# Would the public mirror accept this tree? Ask at merge, not at publish. (TBX-11003, TBX-11024)
+# Would the public mirror accept this tree? Ask at merge, not at publish.
 #
 #   scripts/lint-public-safe.sh                 # the whole tree (tracked + untracked, not ignored)
 #   scripts/lint-public-safe.sh --diff BASE     # only files changed since BASE, committed or not
 #   scripts/lint-public-safe.sh --root DIR ...  # another checkout
 #
 # On 2026-10-16 scripts/publish-repo.sh's secrets guard stopped the public mirror twice after
-# the Mac release had already shipped: a LAN address left as a script default (TBX-10989),
+# the Mac release had already shipped: a LAN address left as a script default,
 # then house machine names in test fixtures and comments. Both had been merged days earlier.
 #
 # This runs THE SAME GUARD. It does not keep a copy of the patterns: it extracts publish-repo.sh's
@@ -33,7 +33,7 @@ GUARD_SOURCE="${BATON_PUBLIC_GUARD_SOURCE:-$(cd "$(dirname "$0")" && pwd)/publis
 EXCLUDES_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^EXCLUDES=[(]$' '^[)]$' 'the EXCLUDES list')"
 PURGE_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^for exclude in "[$][{]EXCLUDES\[@\][}]"; do$' '^done   # end of the purge of excluded paths$' 'the purge of excluded paths')"
 DOCS_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^PUBLIC_DOCS=[(]$' '^[)]$' 'the PUBLIC_DOCS list')"
-TAGS_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^bold "==> Stripping internal task tags"$' "s/W-\\[0-9\\]\\[0-9\\]\\*//g'$" 'the task-tag strip')"
+TAGS_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^bold "==> Stripping internal task tags"$' '^# end of the task-tag strip$' 'the task-tag strip')"
 GUARD_BLOCK="$(rk_extract_block "$GUARD_SOURCE" '^# 3[.] Secrets guard' '^echo "    clean"$' 'the Secrets guard section')"
 
 # What publish-repo.sh would copy into its mirror: its excludes, its purge, its public docs.

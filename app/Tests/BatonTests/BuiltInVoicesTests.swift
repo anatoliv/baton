@@ -62,7 +62,7 @@ struct BuiltInVoicesTests {
         let savedChoice = ConfiguredSpeechSynthesizer.choice
         SpeechConfig.defaults = defaults
         ConfiguredSpeechSynthesizer.builtIn = { builtIn }
-        ConfiguredSpeechSynthesizer.choice = { .automatic }   // TBX-10909: these pin Automatic
+        ConfiguredSpeechSynthesizer.choice = { .automatic }   // These pin Automatic
         defer {
             SpeechConfig.defaults = savedDefaults
             ConfiguredSpeechSynthesizer.builtIn = savedBuiltIn
@@ -87,7 +87,7 @@ struct BuiltInVoicesTests {
             #expect(ConfiguredSpeechSynthesizer.engine(for: "kokoro:af_heart+af_bella") == .server("kokoro"))
             #expect(ConfiguredSpeechSynthesizer.engine(for: "chatterbox:Abigail.wav") == .server("chatterbox"))
 
-            // TBX-10909: Voice server leaves the built-in engine out; Built-in leaves the servers out.
+            // Voice server leaves the built-in engine out; Built-in leaves the servers out.
             ConfiguredSpeechSynthesizer.choice = { .server }
             #expect(ConfiguredSpeechSynthesizer.registeredEngines() == [.server("kokoro"), .server("chatterbox")])
             #expect(ConfiguredSpeechSynthesizer.engine(for: "kokoro:af_heart") == .server("kokoro"))
@@ -262,7 +262,7 @@ struct BuiltInVoicesRenderTests {
         #expect(rms > 300, "rms \(rms)")
 
         // The spike's passage (Austen, 233 words, 74 s of speech), when it is in the tree, for a
-        // real-time factor comparable with TBX-10849's.
+        // real-time factor comparable with an internal task.
         let passageURL = Self.modelSource.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("spikes/kokoro-mlx/passage.txt")
         var passageLine = ""

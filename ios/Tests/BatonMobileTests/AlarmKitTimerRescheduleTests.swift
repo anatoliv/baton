@@ -2,7 +2,7 @@ import BatonPlaybackKit
 import XCTest
 @testable import BatonMobile
 
-/// The timer's reschedule when its clip is ready (TBX-1000000505 B-15). AlarmKit holds one alarm
+/// The timer's reschedule when its clip is ready. AlarmKit holds one alarm
 /// per id, so the chime timer is cancelled before the clip timer is scheduled; when that schedule
 /// was refused, no system timer was left at all.
 @available(iOS 26.0, *)
@@ -40,7 +40,7 @@ final class AlarmKitTimerRescheduleTests: XCTestCase {
 
     /// After a fallback took, the next sync must find the clip already tried: the plan reschedules
     /// whenever the recorded sound differs from the one wanted, so recording the fallback cancelled
-    /// and rescheduled the running timer on every sync (TBX-1000000505 review).
+    /// and rescheduled the running timer on every sync.
     func testAFallbackDoesNotMakeEverySyncRescheduleTheTimer() {
         let id = UUID()
         let wanted = "\(id.uuidString) clip-abc.caf"

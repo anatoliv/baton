@@ -20,10 +20,10 @@ import BatonSubsonicKit
 /// - **on a slow heartbeat**, for a window left open all day.
 ///
 /// And a push of the book ledger when listening halts here: on pause, on stop and on leaving
-/// the foreground, debounced (`BookLedgerPush`, TBX-10986). Without it a book stopped on the
-/// Mac reached the phone only at the next heartbeat, 8 to 10 minutes later in the TBX-10974 walk.
+/// the foreground, debounced (`BookLedgerPush`). Without it a book stopped on the
+/// Mac reached the phone only at the next heartbeat, 8 to 10 minutes later in the walk.
 ///
-/// Play on a book also pulls first, bounded to about two seconds (`BookPlacePull`, TBX-10993):
+/// Play on a book also pulls first, bounded to about two seconds (`BookPlacePull`):
 /// a Mac that simply stayed in front never becomes active again, so without it Play started
 /// from this Mac's own older place while the phone had moved on.
 ///
@@ -44,7 +44,7 @@ final class PreferenceSyncScheduler {
 
     private let model: MusicModel
     /// Not private so a test can ask whether it is observing. That it *is* observing is the
-    /// whole of TBX-3927, and it is invisible from anywhere else — see `start()`.
+    /// whole of an internal task, and it is invisible from anywhere else — see `start()`.
     let sync = PreferenceSync(deviceName: Host.current().localizedName ?? "Mac")
     private var loop: Task<Void, Never>?
     private var activation: NSObjectProtocol?
@@ -164,13 +164,11 @@ final class PreferenceSyncScheduler {
     /// Split out so it can be tested: an over-eager guard here is silent — the scheduler
     /// runs on time, decides there is nothing to talk to, and syncing never happens, which
     /// looks exactly like the bug this class exists to fix.
+    ///
+    /// It also refuses plain HTTP to a public IP address, where the token would cross the
+    /// internet in the clear (`BearerGateway`).
     static func gateway(urlString: String?, token: String?) -> (url: URL, token: String)? {
-        let raw = (urlString ?? "").trimmingCharacters(in: .whitespaces)
-        let secret = (token ?? "").trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !secret.isEmpty,
-              let url = URL(string: raw), url.scheme != nil, url.host != nil
-        else { return nil }
-        return (url, secret)
+        BearerGateway.resolve(address: urlString, token: token)
     }
 
     /// `force` skips the one-minute floor: a push on pause or stop is the one sync the listener
@@ -178,8 +176,8 @@ final class PreferenceSyncScheduler {
     @discardableResult
     private func runIfConfigured(force: Bool = false) async -> Bool {
         guard let gateway = Self.gateway(
-            urlString: BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL"),
-            token: NavidromeKeychain.secret(account: "baton.agent.gatewayToken")
+            urlString: BatonStorage.defaults.string(forKey: BearerGateway.addressKey),
+            token: BearerGateway.savedToken()
         ) else { return false }
 
         let reached: Bool

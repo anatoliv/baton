@@ -6,7 +6,7 @@ import Foundation
 /// **Why this is not on the client.** `NavidromeClient` is a `Sendable` value type that every
 /// call site builds on demand: 30 `NavidromeConfig.makeClient()` sites plus one direct
 /// construction, and not one of them keeps the client afterwards. A salt cached on the
-/// instance therefore never survives to a second request. The TBX-5349 agent measured the
+/// instance therefore never survives to a second request. The agent measured the
 /// consequence in the owner's live on-disk `URLCache`: 645 cover-art entries carrying 645
 /// distinct salts for 456 distinct covers, so no HTTP cache could ever match a repeat URL.
 ///

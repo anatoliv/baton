@@ -66,7 +66,7 @@ final class PendingImportStoreTests: XCTestCase {
     }
 
     /// `restore` runs only while Documents is on, so with it off a kept file stayed on the phone
-    /// indefinitely (TBX-1000000505 B-22). Past its age it goes without being offered; one in
+    /// indefinitely. Past its age it goes without being offered; one in
     /// date stays for when Documents is on again.
     func testWithDocumentsOffAnExpiredDocumentIsStillDropped() throws {
         let now = Date()
@@ -88,7 +88,7 @@ final class PendingImportStoreTests: XCTestCase {
     }
 }
 
-/// The whole hand-over across a quit (TBX-10889 audit): a share claimed out of the App Group
+/// The whole hand-over across a quit: a share claimed out of the App Group
 /// inbox and offered to the model is still pending in the next process's model, and is let go
 /// only when the person closes an import screen that actually appeared. The model uses the real
 /// `PendingImportStore.shared`, so each test starts and ends with it empty.

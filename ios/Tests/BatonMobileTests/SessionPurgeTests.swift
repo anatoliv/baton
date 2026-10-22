@@ -191,8 +191,8 @@ final class SessionPurgeTests: XCTestCase {
         model.clippings.remove(id: clipping.id, dismissing: false, everywhere: false)
     }
 
-    /// TBX-10955: a document shared just before a sign-out waits on disk for its import screen
-    ///, and only the DEBUG reset cleared it, so the real sign-out left it to come back
+    /// A document shared just before a sign-out waits on disk for its import screen
+    /// and only the DEBUG reset cleared it, so the real sign-out left it to come back
     /// on the next launch. Both purge choices drop it: it is an import that never happened, not
     /// one of the user's recordings.
     func testPurgeDropsADocumentWaitingForItsImportScreen() throws {
@@ -220,7 +220,7 @@ final class SessionPurgeTests: XCTestCase {
     /// model holds in memory, with the sync heartbeat running and every removal stamped as a
     /// local change. The next sync then went to the old gateway with the deleted token and
     /// announced the account's settings as deleted, and the Mac removed them
-    /// (TBX-1000000480 B-1).
+    ///
     func testPurgeLetsGoOfTheGatewayAndItsSyncHistory() {
         let model = MobileModel()
         model.agentConfig.gatewayURL = "http://127.0.0.1:59999"
@@ -242,7 +242,7 @@ final class SessionPurgeTests: XCTestCase {
                      "keys held before the purge would be announced as deleted")
     }
 
-    /// TBX-5230 (owner decision, 2026-09-09): the purge now takes the friend's memory and
+    /// The purge now takes the friend's memory and
     /// its learned corrections too, not just the exchange log. Both live in the shared
     /// `baton.friend.ledger`, so clearing them here must publish tombstones — not merely go
     /// silent — or a peer device still holding the old rows would push them straight back on
@@ -269,7 +269,7 @@ final class SessionPurgeTests: XCTestCase {
         XCTAssertNil(model.friendLearning.promptBlock, "the friend's learned corrections survived the purge")
     }
 
-    /// The DEBUG reset path (`-baton.resetSession`) is the one that found TBX-5230 in the
+    /// The DEBUG reset path (`-baton.resetSession`) is the one that found an internal task in the
     /// first place: a UI fixture reset the session and still met last run's memories. It
     /// clears the same two stores `purge` does, through the same tombstoning calls.
     func testResetSessionWipesTheFriendsMemoryAndLearning() {

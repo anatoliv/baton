@@ -5,7 +5,7 @@ import BatonShareKit
 import Foundation
 import XCTest
 
-/// Album and playlist links on `/b/` (specs/collection-sharing.md "Service", TBX-1000000485): book
+/// Album and playlist links on `/b/` (specs/collection-sharing.md "Service"): book
 /// rows with a kind, behind `BATON_SHARE_COLLECTIONS`. The book behaviour itself is covered by
 /// ShareBookServiceTests; these check what a collection adds and that it shares the book limits.
 final class ShareCollectionServiceTests: XCTestCase {

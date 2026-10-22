@@ -186,7 +186,7 @@ final class MobileAudioSession {
             //
             // And only then: .shouldResume says the interruption is over, not that the
             // person wanted Baton playing. On its own it started a track they had paused
-            // before the call (TBX-1000000480 B-3).
+            // before the call.
             if wasPlayingBeforeInterruption {
                 activateForPlayback()
                 controller.resume()

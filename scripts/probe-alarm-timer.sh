@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Mac's Alarm and Timer on a real, isolated Baton (TBX-11171, specs/alarm-and-timer.md).
+# The Mac's Alarm and Timer on a real, isolated Baton.
 #
 #   scripts/probe-alarm-timer.sh <Baton.app> <evidence-dir>
 #
@@ -9,9 +9,9 @@
 # nothing plays before the timer ends; the chosen file plays when it does; the floating ringing
 # card is up with Keep playing, open player, Snooze 9 min and Stop; "Keep playing, open player"
 # takes the card down with the music still playing and the Baton window up; the player's clock
-# opens the quick sheet (TBX-1000000112). The audio is silence, so the run is quiet on the owner's speakers.
+# opens the quick sheet. The audio is silence, so the run is quiet on the owner's speakers.
 #
-# The ringing card's words and look can be chosen, for a screenshot (TBX-1000000478):
+# The ringing card's words and look can be chosen, for a screenshot:
 # ALARM_PROBE_LABEL (default "Probe timer"), ALARM_PROBE_TRACK (default "Wake Up") and
 # ALARM_PROBE_APPEARANCE (light or dark, written to the probe's own suite; unset follows the system).
 #

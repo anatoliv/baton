@@ -255,7 +255,7 @@ final class BookVoiceChangeTests: XCTestCase {
         XCTAssertEqual(library.homeServer.record(forDocument: book.documentID)?.jobID, oldID)
     }
 
-    /// TBX-10985's other device: a book it adopted from the home server follows the job the first
+    /// An internal task other device: a book it adopted from the home server follows the job the first
     /// device made again, and its chapters are replaced in their rows rather than kept in the old
     /// voice for ever.
     func testABookAdoptedOnTheOtherDevicePicksUpTheChaptersMadeAgain() async throws {

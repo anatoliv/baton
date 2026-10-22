@@ -1,7 +1,7 @@
 import XCTest
 @testable import BatonPlaybackKit
 
-/// Download names for podcast episodes, whose id is their enclosure URL (TBX-1000000506,
+/// Download names for podcast episodes, whose id is their enclosure URL (
 /// C2-5 and C2-12).
 final class DownloadFilenameFollowUpTests: XCTestCase {
     private func name(title: String = "Episode", id: String, taken: [String: String] = [:],

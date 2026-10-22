@@ -34,7 +34,7 @@ final class ShareInboxTests: XCTestCase {
         ((try? FileManager.default.contentsOfDirectory(atPath: inbox.root.path)) ?? []).filter { !$0.hasPrefix(".") }.sorted()
     }
 
-    // MARK: - A Baton share link is not a page (TBX-1000000505 B-6)
+    // MARK: - A Baton share link is not a page
 
     /// Its fragment is the song's key. As a "page" it was written to the App Group, used as the
     /// document's file name and sent to the gateway by Send to my Mac.

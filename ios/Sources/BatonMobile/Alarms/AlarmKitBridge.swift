@@ -5,7 +5,7 @@ import BatonPlaybackKit
 import Foundation
 import SwiftUI
 
-/// Alarms and the timer as AlarmKit alarms, on iOS 26 and later (TBX-11171,
+/// Alarms and the timer as AlarmKit alarms, on iOS 26 and later (
 /// specs/alarm-and-timer.md). The system rings them with the chosen track's clip (or Baton's
 /// chime) on the Lock Screen and in the Dynamic Island whether Baton runs or not. The API
 /// shapes here were read from the AlarmKit module interface in the iOS 27 SDK.
@@ -20,8 +20,8 @@ final class AlarmKitBridge: AlarmSystemBridge {
 
     private let manager = AlarmManager.shared
     /// The sound for an alarm: the clip of its track, else Baton's chime, else "" for AlarmKit's
-    /// own alarm sound (`AlarmClipStore.soundName`, TBX-1000000410), by id and whether the alarm
-    /// is gentle (the faded clip or chime, TBX-1000000445). Empty until wired.
+    /// own alarm sound (`AlarmClipStore.soundName`), by id and whether the alarm
+    /// is gentle (the faded clip or chime). Empty until wired.
     var soundName: (UUID, Bool) -> String = { _, _ in "" }
     /// Makes the clips (`AlarmClipStore.prepare`). True when a sound changed, so the sync
     /// schedules again with it.
@@ -187,7 +187,7 @@ final class AlarmKitBridge: AlarmSystemBridge {
                 // Counting down with the chime while the clip was cut: the same end, the track's sound.
                 // AlarmKit holds one alarm per id, so the old one goes first; if the new one is
                 // then refused, the sound it had (or AlarmKit's own) puts a timer back, rather
-                // than leaving none at all (TBX-1000000505 B-15).
+                // than leaving none at all.
                 if current != nil { try? manager.cancel(id: timer.id) }
                 let duration = endsAt.timeIntervalSince(now)
                 let sounds: [String?] = current == nil ? [sound] : [sound, Self.sound(recorded: timerSound, for: timer.id), ""]

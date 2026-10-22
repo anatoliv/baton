@@ -222,7 +222,7 @@ final class AlarmClockTests: XCTestCase {
 
     /// A system sync that takes seconds (AlarmKit's apply prepares the clip) must not overlap the
     /// next one: both read what is scheduled across their awaits, and the older one, finishing
-    /// last, would put old settings back (TBX-1000000480 B-14).
+    /// last, would put old settings back.
     func testSystemSyncsNeverOverlap() async {
         final class SlowSystem: AlarmSystemBridge {
             var active = 0
@@ -254,7 +254,7 @@ final class AlarmClockTests: XCTestCase {
     }
 
     /// An ended timer Baton cannot answer (the iPhone in the background) stays due; the clock
-    /// must not wake fifty times a second waiting for the app to come forward (TBX-1000000480 C2-13).
+    /// must not wake fifty times a second waiting for the app to come forward.
     func testClockDoesNotSpinOnAnUnansweredEndedTimer() {
         let store = AlarmStore(defaults: ThrowawayDefaults.make("alarms.spin"))
         store.startTimer(duration: 1, choice: .song(tracks[0]), now: Date().addingTimeInterval(-5))
@@ -270,7 +270,7 @@ final class AlarmClockTests: XCTestCase {
 
     /// A snooze the system took (AlarmKit's Snooze button, which Baton never hears about): Baton
     /// opened during it, half an hour after the first ring, plays the track rather than calling
-    /// the alarm missed (TBX-11171 review).
+    /// the alarm missed.
     func testOpeningDuringASystemSnoozePlaysInsteadOfMissing() {
         let player = controller()
         var cal = Calendar(identifier: .gregorian)

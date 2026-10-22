@@ -350,7 +350,7 @@ final class SongSharing {
         #endif
     }
 
-    /// Shares chapters of a book (`specs/book-sharing.md`, Phase 1, TBX-1000000132): one chapter
+    /// Shares chapters of a book (`specs/book-sharing.md`, Phase 1): one chapter
     /// as a song link, two to twelve as a mixtape, within the limits the service advertises. The
     /// audio is the chapters' own files on this device, so nothing is fetched, and no text
     /// leaves it: titles travel only as the link's metadata, encrypted when previews are off.

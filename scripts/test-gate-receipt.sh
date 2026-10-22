@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # A full gate that passed once at a commit is reused by both releases, and by nothing that
-# differs from what passed. (TBX-11003) Drives scripts/gate-receipt.sh against a planted
+# differs from what passed. Drives scripts/gate-receipt.sh against a planted
 # repository, a stub `xcodebuild -version` and a temporary receipt directory. About a second.
 # shellcheck disable=SC2016 # stubs and greps carry literal $NAMES
 set -uo pipefail
@@ -181,12 +181,14 @@ if grep -q 'install -m 600 "$IOS_CONFIG" "$MAC_RELEASE/ios/Config/Crashbox.local
 else
   bad "wiring: the release checkouts do not carry the same configurations"
 fi
-if grep -B2 -A8 'gate-receipt.sh" check "$PWD" --require-clean' scripts/publish.sh | grep -q 'CLEAN=1 "$(dirname "$0")/test.sh"'; then
+publish_receipt_block="$(grep -B2 -A8 'gate-receipt.sh" check "$PWD" --require-clean' scripts/publish.sh)"
+if grep -q 'CLEAN=1 "$(dirname "$0")/test.sh"' <<<"$publish_receipt_block"; then
   ok "wiring: publish.sh reuses a CLEAN=1 receipt or runs CLEAN=1 test.sh"
 else
   bad "wiring: publish.sh does not check a receipt before its gate"
 fi
-if grep -A16 'gate-receipt.sh" check "$REPO"' ios/scripts/testflight.sh | grep -q './scripts/test.sh'; then
+testflight_receipt_block="$(grep -A16 'gate-receipt.sh" check "$REPO"' ios/scripts/testflight.sh)"
+if grep -q './scripts/test.sh' <<<"$testflight_receipt_block"; then
   ok "wiring: testflight.sh reuses a receipt or runs test.sh"
 else
   bad "wiring: testflight.sh does not check a receipt before its gate"
@@ -197,7 +199,7 @@ else
   bad "wiring: test.sh never writes a receipt"
 fi
 
-# TBX-1000000503 F-12: a lint-source override points a lint at a planted tree, so a run with
+# A lint-source override points a lint at a planted tree, so a run with
 # one set did not lint this tree, and must not write a receipt that says it did. The real
 # eligibility function from test.sh, run in the planted (clean) repository.
 ELIGIBLE_FN="$(awk '/^gate_receipt_eligible\(\) \{$/,/^\}$/' scripts/test.sh)"

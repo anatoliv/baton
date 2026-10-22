@@ -5,7 +5,7 @@
 # A publish that copies files out of a checkout must copy what the commit says. The main
 # guard checks HEAD, but scripts/publish-site.sh rsyncs the WORKING TREE, so an uncommitted
 # edit or an untracked file under a shipped path went live while the deploy named a commit
-# that did not contain it (TBX-1000000502 F-6). This refuses when any of the given paths
+# that did not contain it. This refuses when any of the given paths
 # differs from HEAD: modified, staged, deleted, or untracked and not ignored.
 #
 # One exception, and only in its exact shape: publish.sh rewrites website/index.html (step

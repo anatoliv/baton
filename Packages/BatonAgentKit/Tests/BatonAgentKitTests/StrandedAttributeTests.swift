@@ -8,7 +8,7 @@ import XCTest
 /// `RemoteMemoryStore.swift`: `@MainActor` was written above the class, `FriendLedgerStore` was
 /// added between the two, and the attribute silently moved onto an enum whose only member is
 /// `static` and does nothing with it, while the class holding the mutable state lost it
-///. Nothing went red, because the class is non-`Sendable` and the compiler was
+/// Nothing went red, because the class is non-`Sendable` and the compiler was
 /// already refusing to let it cross isolation domains at each use site — so the isolation
 /// stayed real while the declaration of it was gone.
 ///
@@ -26,7 +26,7 @@ import XCTest
 /// up two more, both in `BatonPlaybackKit` and both of the "one insert away" kind — in
 /// `StreamingPlaybackController` an insert had already happened and the doc comment for
 /// `resolveStreamURL` was left describing `resolveDownloadURL`. A guard that reads 6% of the
-/// code is not a guard; it is a record of where somebody last looked. (TBX-5317, S-F25)
+/// code is not a guard; it is a record of where somebody last looked.
 final class StrandedAttributeTests: XCTestCase {
     /// `@Name` or `@Name(...)`, alone on the line. Anything else on the line means the
     /// attribute is already part of a complete declaration and cannot drift.
@@ -121,9 +121,9 @@ final class StrandedAttributeTests: XCTestCase {
     /// loosened check would pass the whole-tree scan by never matching anything.
     func testTheStrandedShapesStillFail() {
         let stranded: [(String, [String])] = [
-            // TBX-5234: @MainActor left above a type inserted underneath it.
+            // @MainActor left above a type inserted underneath it.
             ("RemoteMemoryStore", ["@MainActor", "/// Keeps what the friend was told.", "enum FriendLedgerStore {}"]),
-            // TBX-5252 / S-F25: an attribute sandwiched between two halves of a doc comment.
+            // An internal task / S-F25: an attribute sandwiched between two halves of a doc comment.
             ("ClippingStore", ["    /// Bring local state into line.", "    @discardableResult",
                                "    /// `deleted` carries the playable ids.", "    func reconcile() {}"]),
             ("StreamingPlaybackController", ["    @MainActor", "", "    // resolves a download URL",
@@ -137,7 +137,7 @@ final class StrandedAttributeTests: XCTestCase {
     }
 
     /// A complete one-line declaration whose initializer ends in `)` is not a bare attribute,
-    /// even with the next property's doc comment right below it (TBX-7324, the 0.19.6 gate).
+    /// even with the next property's doc comment right below it.
     func testAOneLineDeclarationEndingInAParenIsNotStranded() {
         let lines = [
             "    @AppStorage(BatonMCPConstants.preferredPortDefaultsKey) private var preferredPort = Int(BatonMCPConstants.defaultPort)",

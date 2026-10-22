@@ -1,5 +1,5 @@
 #!/bin/bash
-# Settings > Storage's Home Server section (M6.4, TBX-10850) against a throwaway gateway, on a
+# Settings > Storage's Home Server section (M6.4) against a throwaway gateway, on a
 # probe instance, never the owner's Baton and never the real home server:
 #
 #   scripts/probe-storage-home-server.sh <Baton.app> <evidence-dir>
@@ -220,7 +220,7 @@ press "Render Again"; verdict "Render Again pressed" $?
 wait_for 60 '[ "$(log_count "PUT /v1/books/$JOB")" -gt "$puts_before" ]'; ok=$?; verdict "the book was submitted to the gateway again" $ok
 wait_for 60 'gw_get "/v1/books/$JOB" | grep -q "\"status\":\"ready\""'; ok=$?; verdict "the gateway made it again: ready" $ok
 wait_for 90 '[ "$(landed)" -ge 2 ]'; ok=$?; verdict "both chapters came down again ($(landed))" $ok
-# Without Refresh: the pane reads the listing again after Render Again (TBX-10954).
+# Without Refresh: the pane reads the listing again after Render Again.
 wait_for 20 'server_lists "The Cell"'; ok=$?; verdict "the Home Server list shows The Cell again without Refresh" $ok
 wait_for 30 'server_section | grep -A1 -x "The Cell" | grep -qx "Ready"'; ok=$?
 verdict "and says it is Ready there, as the home server does" $ok
@@ -253,7 +253,7 @@ launch --env BATON_DEBUG_SHOW_CLIPPINGS=1 || { echo "probe did not restart"; exi
 # Clippings is the first screen, and the probe stays on it: nothing is clicked. The book made
 # on the home server counts as removable only once the home server has answered about it after
 # launch, so the suggestion has to come when that answer lands, not only when Clippings first
-# appears (TBX-10954).
+# appears.
 front
 # What this suite's preferences say about storage (BookStorage.Settings, stored as JSON), read
 # with the probe running: the suggestion on offer, and the rule.

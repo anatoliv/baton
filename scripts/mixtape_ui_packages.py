@@ -20,9 +20,10 @@ def public_url(value):
     return value
 
 
-def public_config(text, allowed):
+def read_config(text):
     # Key/section allowlist before interpreting a value. Unknown settings such
     # as credential helpers, extra headers, hooks, filters and includes refuse.
+    # Returns the origin URL as recorded; callers decide what it may name.
     section = None; origin = None
     for line in text.splitlines():
         stripped = line.strip()
@@ -33,15 +34,21 @@ def public_config(text, allowed):
         key, separator, value = stripped.partition('='); key = key.strip().lower()
         require(separator and section is not None)
         if section == 'core':
-            require(key in {'repositoryformatversion', 'filemode', 'bare', 'logallrefupdates', 'ignorecase', 'precomposeunicode', 'symlinks'})
+            # fsmonitor and longpaths are what current SwiftPM writes (false and true).
+            require(key in {'repositoryformatversion', 'filemode', 'bare', 'logallrefupdates', 'ignorecase',
+                            'precomposeunicode', 'symlinks', 'fsmonitor', 'longpaths'})
             value = value.strip().lower()
             require(value in ({'0', '1'} if key == 'repositoryformatversion' else {'true', 'false'}))
+            # fsmonitor = true would start git's fsmonitor daemon, a process outside the owned
+            # command and an IPC socket inside the cache, on gateway_copy's git diff/status.
+            require(key != 'fsmonitor' or value == 'false')
         elif section == 'remote "origin"':
-            require(key in {'url', 'fetch', 'mirror'})
+            require(key in {'url', 'fetch', 'mirror', 'tagopt'})
             value = value.strip()
             if key == 'url':
-                require(origin is None and value in allowed); public_url(value); origin = value
+                require(origin is None and value); origin = value
             elif key == 'fetch': require(value in {'+refs/heads/*:refs/remotes/origin/*', '+refs/*:refs/*'})
+            elif key == 'tagopt': require(value == '--no-tags')
             else: require(value.lower() in {'true', 'false'})
         else:
             require(key in {'remote', 'merge'})
@@ -51,20 +58,56 @@ def public_config(text, allowed):
     return origin
 
 
+def public_config(text, allowed):
+    origin = read_config(text)
+    require(origin in allowed); public_url(origin)
+    return origin
+
+
+def owned_file(path, root, limit):
+    require(path.is_file() and not path.is_symlink() and path == path.resolve()
+        and path.resolve().is_relative_to(root) and path.stat().st_size <= limit)
+    return path.read_text()
+
+
 def qualify_git_config(cache, pins_bytes):
+    """Every mirror in repositories/ names an allowed public pin. Every checkout either names
+    one too, or (current SwiftPM) names the local path of one of this cache's own mirrors, and
+    then its detached HEAD must be exactly that pin's revision. The revision decides, not the
+    spelling of the origin, and nothing in the cache is changed (TBX-1000000539)."""
     cache = Path(cache).resolve(); pins = json.loads(pins_bytes)['pins']
     allowed = {public_url(p['location']) for p in pins}
-    seen = set(); count = 0
-    for area in ['checkouts', 'repositories']:
+    revisions = {p['location']: p['state']['revision'] for p in pins}
+    identities = {p['location']: p['identity'] for p in pins}
+    require(all(re.fullmatch(r'[0-9a-f]{40}', revision) for revision in revisions.values()))
+    seen = set(); count = 0; local = 0; mirrors = {}
+    for area in ['repositories', 'checkouts']:
         directory = cache / area
         require(directory.is_dir())
         for repository in sorted(directory.iterdir()):
             require(repository.is_dir() and repository == repository.resolve() and repository.resolve().is_relative_to(directory))
             config = repository / ('.git/config' if area == 'checkouts' else 'config')
-            require(config.is_file() and config == config.resolve() and config.resolve().is_relative_to(cache) and config.stat().st_size <= 65_536)
-            seen.add(public_config(config.read_text(), allowed)); count += 1
+            text = owned_file(config, cache, 65_536)
+            if area == 'repositories':
+                origin = public_config(text, allowed); mirrors[repository] = origin
+            else:
+                origin = read_config(text)
+                if origin not in allowed:
+                    recorded = Path(origin)
+                    # SwiftPM records the path as it was given (/tmp for /private/tmp), so symlinks
+                    # resolve; a '..' never names a mirror.
+                    require(recorded.is_absolute() and '..' not in recorded.parts and recorded.resolve() in mirrors)
+                    origin = mirrors[recorded.resolve()]
+                    # Bound to its own package: a checkout is named for the package's identity.
+                    require(repository.name.lower() == identities[origin])
+                    head = owned_file(repository / '.git/HEAD', cache, 128)
+                    require(head.strip() == revisions[origin] and head in (revisions[origin], revisions[origin] + '\n'))
+                    local += 1
+                public_url(origin)
+            seen.add(origin); count += 1
     require(seen == allowed)
-    return {'publicConfigurations': count, 'allowedPublicOrigins': len(allowed), 'configurationQualified': True}
+    return {'publicConfigurations': count, 'allowedPublicOrigins': len(allowed), 'configurationQualified': True,
+            'localMirrorCheckouts': local, 'revisionVerifiedCheckouts': local}
 
 
 def gateway_copy(cache, pins_path, destination, repo, command):

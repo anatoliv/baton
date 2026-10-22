@@ -92,7 +92,7 @@ final class SpeakSummaryPrepareTests: XCTestCase {
     }
 
     /// The notification body persists in Notification Center, and the fallback banner shows on
-    /// screen: both must carry the cleaned text, not the scrapings (TBX-1000000480 A-7).
+    /// screen: both must carry the cleaned text, not the scrapings.
     func testTheNotificationAndFallbackBannerCarryThePreparedText() async throws {
         let music = MusicModel()
         posts.result = .denied

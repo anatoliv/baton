@@ -160,7 +160,7 @@ enum SelectionReader {
 
         // Only a pasteboard the copy changed is put back. Restoring one nothing touched still
         // rewrote it: a new change count (a password manager's timed clear then stands down) and
-        // promised types turned into plain data (TBX-1000000504, A-12).
+        // promised types turned into plain data.
         if pasteboard.changeCount != before { restore(saved, to: pasteboard) }
         return copied
     }

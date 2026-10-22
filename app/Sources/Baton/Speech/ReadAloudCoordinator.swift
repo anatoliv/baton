@@ -227,7 +227,7 @@ final class ReadAloudCoordinator {
             // Every chunk is handed over, but up to `lookahead` of them are still to be heard.
             // The next reading waits for them: starting it here put its document on the HUD
             // over this one's last sentences, and a Stop then saved its place from this
-            // reading's highlight (TBX-1000000504, A-6).
+            // reading's highlight.
             if completed { await self.waitForTheTail() }
             self.isReading = false
             // Cancelled means `stop()` ran, and it has already saved the position.
@@ -290,7 +290,7 @@ final class ReadAloudCoordinator {
     /// Split out so it can be asserted without driving synthesis. **A resume that silently
     /// restarts from the top looks like success from the outside** — audio plays, the HUD fills,
     /// the entry disappears from the menu — and would pass any test that only checks that
-    /// something was spoken. This is the one property of TBX-3832 worth pinning, and it is
+    /// something was spoken. This is the one property of an internal task worth pinning, and it is
     /// exactly the one a human validating by ear could also miss on a long article.
     ///
     /// Nil when nothing is left, which is the caller's cue to forget the entry rather than
@@ -622,13 +622,9 @@ final class ReadAloudCoordinator {
     ///     Mac shows as the subtitle; the machine is implicit when every device is yours.
     private func offerToSendToTheGateway(_ fileURL: URL, quietly: Bool = false,
                                          name: String? = nil, origin: String? = nil) async {
-        let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "")
-            .trimmingCharacters(in: .whitespaces)
-        let secret = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "")
-            .trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !secret.isEmpty, let url = URL(string: raw), url.host != nil else { return }
+        guard let gateway = BearerGateway.configured() else { return }
 
-        let files = GatewayFiles(gatewayURL: url, token: secret)
+        let files = GatewayFiles(gatewayURL: gateway.url, token: gateway.token)
         do {
             let sent = try await files.upload(
                 fileURL,

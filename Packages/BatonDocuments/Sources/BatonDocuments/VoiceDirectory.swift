@@ -43,7 +43,7 @@ public struct VoiceEntry: Sendable, Equatable, Hashable, Identifiable {
 
     /// The title of the group it is listed under: "American English, female" for a Kokoro
     /// voice, the engine's name for another engine's ("Expressive voices", "Chatterbox",
-    /// TBX-11142), or "Other voices" for a Kokoro id that cannot be read.
+    /// An internal task), or "Other voices" for a Kokoro id that cannot be read.
     public var groupTitle: String {
         if engine != SpeechEngines.kokoro { return SpeechEngines.title(engine) }
         guard let gender, let first = rawID.first, let place = VoiceDirectory.places[first] else {

@@ -593,7 +593,7 @@ final class ShareBookServiceTests: XCTestCase {
                 return "none"
             }
         }
-        // reaction_sent too: a book's reaction is recorded as a book's (TBX-1000000507 D-12).
+        // reaction_sent too: a book's reaction is recorded as a book's.
         for type in ["share_created", "share_finalized", "audio_fetched", "page_opened", "link_unfurled", "share_extended", "share_revoked", "reaction_sent"] {
             XCTAssertEqual(try kinds(type), ["book"], type)
         }
@@ -621,7 +621,7 @@ final class ShareBookServiceTests: XCTestCase {
         XCTAssertTrue(String(decoding: page.body, as: UTF8.self).contains(#"data-state="ready""#))
     }
 
-    /// The song page's D-21 case on the book page (TBX-1000000507 D-6/D-21 gap).
+    /// The song page's D-21 case on the book page.
     func testACombiningMarkCannotCarryAQuoteOrBracketPastEscaping() throws {
         let mark = "\u{301}"
         let preview = BookPreview(title: "Book <\(mark)b>", author: "A'\(mark)&\(mark)>\(mark)", from: "Sam\"\(mark)",

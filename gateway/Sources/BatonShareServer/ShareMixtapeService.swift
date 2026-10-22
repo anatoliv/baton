@@ -24,7 +24,7 @@ extension ShareService {
             guard parts.count >= 4, ShareLink.isValidID(parts[3]), let record = try store.share(id: parts[3]), record.isMixtape, !record.isBook else { return .error(404, "not_found", "No such share.") }
             // Exists, but under another installation secret: not a mixtape that ended. The app
             // deletes a ticket's only key on not_found, and older apps on any 404, so a changed
-            // secret answers 403 instead (TBX-1000000507 C-6). The id is in the public link already.
+            // secret answers 403 instead. The id is in the public link already.
             guard record.sharerDigest == sharer.digest else { return mixtapeNotOwner }
             if parts.count == 4 {
                 switch method {
@@ -248,7 +248,7 @@ extension ShareService {
         let visitor = visitor(who, shareID: record.id)
         guard try store.reactionCount(shareID: record.id, visitor: visitor, since: now - now % 86400) < config.limits.reactionsPerVisitorPerDay else { return .error(429, "rate_limited", "Try again later.") }
         // The reaction and its event commit together, so the sender's list and the usage report
-        // cannot disagree (TBX-1000000507 D-12). Books answer reactions here too.
+        // cannot disagree. Books answer reactions here too.
         try store.database.transaction {
             try store.addReaction(shareID: record.id, reaction, visitor: visitor, at: now)
             try store.record(event: "reaction_sent", at: now, shareID: record.id, sharerID: record.sharerID, visitor: visitor,

@@ -115,7 +115,7 @@ final class AudiobookExporterTests: XCTestCase {
         XCTAssertEqual(((format["tags"] as? [String: Any])?["title"] as? String), "A Small Room")
     }
 
-    /// TBX-10856: every mark lands where AVFoundation (Books.app) hears its chapter begin, for
+    /// Every mark lands where AVFoundation (Books.app) hears its chapter begin, for
     /// both kinds of chapter file a Mac book is made of: AAC from this Mac's own encoder
     /// (`AVAssetWriterMuxer`) and AAC from ffmpeg's encoder, which is how a book rendered on the
     /// home server arrives. Fourteen chapters, each 0.25 s of silence then a tone of its own.
@@ -162,7 +162,7 @@ final class AudiobookExporterTests: XCTestCase {
         }
     }
 
-    /// TBX-11141: a book whose voices answered in two formats, 48 kHz stereo float and Kokoro's
+    /// A book whose voices answered in two formats, 48 kHz stereo float and Kokoro's
     /// 24 kHz mono 16-bit. Each chapter is encoded at the one rate and channel count every chapter
     /// gets, so the export's stream copy joins alike files, and Apple's decoder plays the M4B to
     /// its full length. Joined as they came, the file reported its length and decoded to a third.

@@ -272,7 +272,7 @@ extension ShareStore {
 
     /// A held share its sharer revokes: disabled and purged now, while the operator's case
     /// reference and how long it is kept stay as they were, for the audit trail; before, the next
-    /// sweep cleared the reference at once (TBX-1000000507 D-18). The revision still moves on, so
+    /// sweep cleared the reference at once. The revision still moves on, so
     /// a contact action planned before the revoke no longer matches. Call inside a transaction.
     func purgeHeldByOwner(id: String, now: Int64) throws {
         let held = try database.query("SELECT case_ref,case_until FROM share_enforcement WHERE share_id=?", [.text(id)]).first

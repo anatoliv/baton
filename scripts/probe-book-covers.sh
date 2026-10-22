@@ -1,5 +1,5 @@
 #!/bin/bash
-# Book covers on the Mac (TBX-11064), on a probe instance against a throwaway gateway, never the
+# Book covers on the Mac, on a probe instance against a throwaway gateway, never the
 # owner's Baton and never the real home server:
 #
 #   GATEWAY_URL=http://127.0.0.1:<port> GATEWAY_TOKEN_FILE=<0600 file> GATEWAY_BOOKS=<its books dir> \

@@ -82,7 +82,7 @@ public enum Crossfade {
 }
 
 /// The pure decisions behind the **gapless** next-track preload, factored out of the controller
-///. The controller owns the `AVQueuePlayer` insert + the prefetch task; this owns the two
+/// The controller owns the `AVQueuePlayer` insert + the prefetch task; this owns the two
 /// choices that are pure: whether a metered connection permits pre-caching, and which URL to
 /// preload for a gap-free handoff.
 public enum GaplessPreload {

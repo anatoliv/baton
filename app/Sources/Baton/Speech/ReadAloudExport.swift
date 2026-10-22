@@ -53,7 +53,7 @@ enum ReadAloudExport {
     /// `progress` is called on the main actor with 0…1 after each chunk, so a long article can
     /// show where it has got to. Cancelling the surrounding task removes the partial file.
     ///
-    /// `fallback: false` is for a voice the person chose by name (Change Voice, TBX-10989): a
+    /// `fallback: false` is for a voice the person chose by name (Change Voice): a
     /// host that fails is an error, because a clipping that says it is in that voice while
     /// partly read by the system voice would be a quiet lie.
     ///

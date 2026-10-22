@@ -70,7 +70,7 @@ extension DialogueCast {
     /// around them, cut to `fillBudget`. Every quote in the passages is asked about, the ones the
     /// rules placed too, and their answers are not shown: the model's answers on those are the
     /// check on its answers for the rest (`fill`). Shown the rules' answers, the home model
-    /// swapped speakers in long exchanges more often (TBX-10894, *The Machine Stops*).
+    /// swapped speakers in long exchanges more often.
     public static func fillPrompts(_ spans: [Span], cast: [Character]) -> [FillPrompt] {
         var castLines = ["CAST:"]
         for c in cast {

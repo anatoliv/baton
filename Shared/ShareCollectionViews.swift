@@ -51,7 +51,7 @@ extension CollectionShareDraft {
 }
 
 /// The album, playlist and selection composer (specs/collection-sharing.md, "The apps",
-/// TBX-1000000485): a preview, the track picker (every track on by default, reorderable for a
+/// An internal task): a preview, the track picker (every track on by default, reorderable for a
 /// playlist or picked songs), the title, note, From, expiry, listeners, previews and review
 /// preservation, and a line saying which link the picked songs make. At Create Link one song goes
 /// as a song link, 2 to 12 within the advertised mixtape limits as a mixtape, anything bigger as

@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Documents switch taking effect live (TBX-10801) and the Storage pane (TBX-10850, M6.3 and
+# The Documents switch taking effect live and the Storage pane (M6.3 and
 # M6.4), on a probe instance, never the owner's Baton:
 #
 #   scripts/probe-documents-storage.sh <Baton.app> <evidence-dir>

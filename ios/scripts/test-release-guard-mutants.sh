@@ -11,7 +11,7 @@
 #   ./ios/scripts/test-release-guard-mutants.sh          # table + verdict
 #   ./ios/scripts/test-release-guard-mutants.sh -v       # plus the suite output
 #
-# WHY THIS EXISTS, and it is not hypothetical. Writing the TBX-5102 additions, two
+# WHY THIS EXISTS, and it is not hypothetical. Writing the additions, two
 # assertions looked like coverage and were not:
 #
 #   - a case that called `git cat-file` itself and asserted on its exit status. It was

@@ -546,7 +546,7 @@ public final class EngineAudioPipeline {
 
     /// Push the equalizer's parametric bands into the EQ node. Unlike the tap-based EQ,
     /// this needs no item reload, no re-fetch, and cannot be "left off" a new item at a
-    /// boundary (the  bug class) — the node is simply always in the graph.
+    /// boundary (the bug class) — the node is simply always in the graph.
     public func applyEQ(bands: [EQBand], enabled: Bool) {
         for (index, band) in eq.bands.enumerated() {
             guard index < bands.count else {

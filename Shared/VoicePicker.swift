@@ -33,7 +33,7 @@ struct VoicePicker: View {
     @State private var showAll = false
     @State private var query = ""
 
-    /// Every voice by engine (`VoiceDirectory.byEngine`, TBX-11142): Kokoro's groups by accent and
+    /// Every voice by engine (`VoiceDirectory.byEngine`): Kokoro's groups by accent and
     /// gender, then each other engine's. A cast can mix engines, so a speaker's list
     /// is every engine's too.
     private var sections: [EngineSection] { VoiceDirectory.byEngine(all ?? [], matching: query) }

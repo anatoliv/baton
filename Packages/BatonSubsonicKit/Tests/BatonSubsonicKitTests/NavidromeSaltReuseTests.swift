@@ -6,7 +6,7 @@ import BatonSubsonicModels
 ///
 /// Every call site builds a `NavidromeClient` and drops it, so a salt cached on the instance
 /// was minted and thrown away 645 times for 456 covers in the owner's live `URLCache`
-///. These tests are about the pair of query items two consecutive requests carry,
+/// These tests are about the pair of query items two consecutive requests carry,
 /// not about the class that mints them.
 final class NavidromeSaltReuseTests: XCTestCase {
     override func setUp() {

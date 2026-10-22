@@ -69,7 +69,7 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
     /// It must be the scene's instance, not merely *a* `MusicModel`. Everything this delegate
     /// starts (the MCP server, the control socket, the chat bridges, Shortcuts) acts on it, so
     /// a second model means an agent's "pause" or "what's playing" reaches a player nobody is
-    /// listening to. See `BatonApp.init()` and TBX-7371.
+    /// listening to. See `BatonApp.init()` and an internal task.
     var incomingShareWindow: IncomingShareWindowController?
     var music: MusicModel!
 
@@ -247,7 +247,7 @@ final class BatonAppDelegate: NSObject, NSApplicationDelegate, ObservableObject 
 
 /// The one place the app's `RemoteControlService` lives, so that a *view* can watch it appear.
 ///
-/// TBX-5324, second round. Building the service at the composition root was necessary and not
+/// An internal task, second round. Building the service at the composition root was necessary and not
 /// sufficient: the scenes wrote `.environment(appDelegate.remote)`, and a `Window` scene's
 /// content is a value built while `BatonApp.body` is evaluated, which happens once, before
 /// AppKit calls `applicationDidFinishLaunching`. So the `nil` that was there at launch was
@@ -355,7 +355,7 @@ struct BatonApp: App {
         // which went to the delegate, and installing the state ran the initializer again for
         // the scene. Two players then restored the same queue, and the MCP server, control
         // socket, chat bridges and Shortcuts all drove the one the user could not hear
-        //. The iPhone's `BatonMobileApp` has always done it this way.
+        // The iPhone's `BatonMobileApp` has always done it this way.
         let music = MusicModel()
         _music = State(initialValue: music)
         let router = BatonCommandRouter()
@@ -509,7 +509,7 @@ struct BatonApp: App {
                     let environment = ProcessInfo.processInfo.environment
                     guard DocumentLibrary.isEnabled() else { return }
                     if environment["BATON_DEBUG_SHOW_CLIPPINGS"] == "1" { commandRouter.pendingTab = .clippings }
-                    // Books, and the book probes' sheets, which live there since TBX-11018.
+                    // Books, and the book probes' sheets, which live there since an internal task.
                     if environment["BATON_DEBUG_SHOW_BOOKS"] == "1" || environment["BATON_DEBUG_OPEN_BOOK"] == "1"
                         || environment["BATON_DEBUG_OPEN_CHANGE_VOICE"] == "book"
                         || environment["BATON_DEBUG_EXPORT_BOOK"] != nil

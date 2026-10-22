@@ -222,7 +222,7 @@ final class WebhookActionStore {
     /// string, and the next `persist()` — fired by any edit, rename, reorder or delete of any
     /// action — wrote that empty string back through a `SecretStore` that deletes on empty. So
     /// the one state in which the secrets could not be read was the state in which they were
-    /// destroyed. 0.18.1 shipped this exact fix on the Navidrome side (TBX-5268: "the old copy
+    /// destroyed. 0.18.1 shipped this exact fix on the Navidrome side ("the old copy
     /// is now kept until the new one is safely stored"); the webhook store still collapsed
     /// `missing` and `unreadable` into `""`.
     ///

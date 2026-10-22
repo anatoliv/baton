@@ -96,7 +96,7 @@ public enum VoiceCaster {
     /// does not offer: with no model, an unreachable one, or a useless answer, it returns the
     /// default narrator and two alternates, narration voices first, and says why. The default
     /// narrator is Heart for American or unspecified English and Emma for British English when
-    /// `available` has them (`VoiceCatalogue.narratorDefault`, TBX-10916), otherwise
+    /// `available` has them (`VoiceCatalogue.narratorDefault`), otherwise
     /// `languageDefault`, the configured default.
     public static func suggest(for document: ImportedDocument, available: [String], languageDefault: String,
                                complete: Complete?) async -> VoiceSuggestion {

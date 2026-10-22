@@ -130,7 +130,7 @@ class Client:
             # on a dead network key off `status is None` to skip instead.
             raise ASCError(f"{method} {path} -> unreachable: {error.reason}")
         # socket.timeout too: only from 3.10 is it TimeoutError, and a release runs 3.9, where a
-        # slow response escaped as a raw traceback instead of this. (TBX-1000000480 B-12)
+        # slow response escaped as a raw traceback instead of this.
         except (TimeoutError, socket.timeout) as error:
             raise ASCError(f"{method} {path} -> timed out after {self.timeout}s: {error}")
 

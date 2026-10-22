@@ -1,6 +1,6 @@
 # BatonKokoroMLX: what is vendored here
 
-The built-in "This Mac" voices for document clippings (TBX-10854, board M7.5): Kokoro-82M on
+The built-in "This Mac" voices for document clippings: Kokoro-82M on
 MLX Swift, in Baton's own process. Mac only. `ios/project.yml` must never list this package, so
 the iPhone app links no MLX.
 
@@ -10,7 +10,7 @@ the iPhone app links no MLX.
   `9a1e2614e5898106d00eec7fd21ff2fc89d805a6` (2025-12-08).
 - **Licence:** MIT, copyright 2025 Lassi Maksimainen. The licence travels with the code in
   `Sources/KokoroSwift/LICENSE`.
-- **Why vendored and why this tag:** TBX-10849 (`spikes/kokoro-mlx/RESULTS.md`) measured 1.0.10
+- **Why vendored and why this tag:** an internal task (`spikes/kokoro-mlx/RESULTS.md`) measured 1.0.10
   on mlx-swift 0.29.1 at WER 0.4%, the same as the LAN Kokoro server. The latest tag, 1.0.11 on
   mlx-swift 0.30.2, drops or garbles about a quarter of the words (WER 27%, kokoro-ios issue #37
   reports the same). The port has had no commits since January 2026, so Baton carries it.

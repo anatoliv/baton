@@ -8,7 +8,7 @@ import XCTest
 /// The active server's extra headers (often a proxy's credential, such as a Cloudflare Access
 /// secret or an Authorization header) go only to that server. A client-side podcast episode's id
 /// is its enclosure URL on the podcast's own host, and downloading it used to carry those headers
-/// to the podcast's CDN (TBX-1000000480 C2-2).
+/// to the podcast's CDN.
 @MainActor
 final class PodcastHeaderScopeTests: XCTestCase {
     private var folder: URL!

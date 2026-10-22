@@ -22,7 +22,7 @@ let documentsLog = Logger(subsystem: "io.tonebox.baton", category: "documents")
 /// voice, and moving each finished chapter into `ClippingStore` as a chapter of a book, where it
 /// plays through the ordinary player. Moved, not copied: one copy of 30 MB, not two.
 ///
-/// On for everyone since TBX-10801 (owner decision, 2026-10-15): `baton.documents.enabled` reads
+/// On for everyone since an internal task (owner decision, 2026-10-15): `baton.documents.enabled` reads
 /// an absent key as on, and the **Documents** toggle in Settings → Speech turns it off. The flag
 /// stays on this Mac (it is not a synced preference), so each device decides for itself.
 @MainActor
@@ -252,7 +252,7 @@ final class DocumentLibrary {
     }
 
     /// Where files handed over from outside go: Finder's Open With and the "Make an Audiobook
-    /// with Baton" service (spec §9, TBX-10950). Pure, so every outcome is testable without a
+    /// with Baton" service (spec §9). Pure, so every outcome is testable without a
     /// window. Several files at once open the first one Baton can read; there is no queue of
     /// imports to put the rest in, so the others are counted and the person is told.
     enum OpenRoute: Equatable {
@@ -376,10 +376,8 @@ final class DocumentLibrary {
     /// The gateway as Settings configures it (`baton.agent.gatewayURL`, its token in the
     /// Keychain), the same pair kept readings travel through.
     static func configuredGateway() -> GatewayBookClient? {
-        let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "").trimmingCharacters(in: .whitespaces)
-        let token = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "").trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return nil }
-        return GatewayBookClient(baseURL: url, token: token)
+        guard let gateway = BearerGateway.configured() else { return nil }
+        return GatewayBookClient(baseURL: gateway.url, token: gateway.token)
     }
 
     /// Whether the home server makes books now: configured, answering, and books switched on there.
@@ -701,7 +699,7 @@ final class DocumentLibrary {
 /// Kokoro and Chatterbox at the hosts in Settings → Speech, read per request so a host changed
 /// in Settings is used by the next chunk without a relaunch, and the built-in "This Mac" engine
 /// in Baton's own process. Which of them reads a voice is Settings → Speech → Voice
-/// engine for books (TBX-10909, `BookVoiceSettings.route`), also read per request.
+/// engine for books, also read per request.
 struct ConfiguredSpeechSynthesizer: SpeechSynthesizing {
     /// The built-in engine when its model is present, read per call so a download or a removal
     /// takes effect on the next chunk. Tests replace it.

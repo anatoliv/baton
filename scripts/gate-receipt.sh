@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Gate receipts: run the full test gate once per commit and let both releases use the
-# result. (TBX-11003, TBX-11024)
+# result.
 #
 #   gate-receipt.sh write REPO --clean 0|1 --mac TEXT --ios TEXT --gateway TEXT [--skips LIST]
 #   gate-receipt.sh check REPO [--require-clean] [--needs STAGE,STAGE]

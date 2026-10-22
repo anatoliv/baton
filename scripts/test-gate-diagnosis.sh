@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# The gate's failure report names the cause the log actually states. (TBX-5139)
+# The gate's failure report names the cause the log actually states.
 #
 # WHY THIS EXISTS. On 2026-09-07 two gate runs died before a single test executed and
 # `scripts/test.sh` reported both as:

@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// : the destructive `music_delete_playlist` must never fuzzy-match — exact id
+/// The destructive `music_delete_playlist` must never fuzzy-match — exact id
 /// or exact (case-insensitive) name only, else refuse and list candidates.
 @MainActor
 final class PlaylistDeleteTests: XCTestCase {

@@ -377,7 +377,7 @@ struct MusicMixCard: View {
         .buttonStyle(.plain)
         // The play button sits *over* the link, not inside its label: inside, a click on it
         // opened the mix instead of playing it, because the NavigationLink took the click
-        // (found by the TBX-11066 pointer walk). Over it, the button gets its own clicks and
+        // (found by the pointer walk). Over it, the button gets its own clicks and
         // the rest of the card still opens the mix.
         .overlay(alignment: .topTrailing) {
             ZStack(alignment: .bottomTrailing) {

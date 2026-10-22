@@ -4,7 +4,7 @@ import FoundationNetworking
 #endif
 
 /// A whole book, sealed to disk and ready to upload as one `/b/` link (`specs/book-sharing.md`,
-/// Phase 2, TBX-1000000132).
+/// Phase 2).
 ///
 /// Built by `make`, which seals the chapters one at a time into a caller-given app-private staging
 /// directory: read one chapter's audio, seal it under its own chapter key with a fresh random ID,

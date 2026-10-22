@@ -146,7 +146,11 @@ def qualify_fixture(root, args, command):
     require(build_rc == 0)
     output, bin_rc = command([*common, '--show-bin-path'])
     require(bin_rc == 0)
-    directory = Path(output.decode().strip())
+    # Current SwiftPM warns on stderr that --skip-update is deprecated, and the reserved
+    # command merges stderr: only its own warning lines may precede the one path.
+    lines = [line.strip() for line in output.decode().splitlines() if line.strip()]
+    require(lines and all(line.startswith('warning: ') for line in lines[:-1]))
+    directory = Path(lines[-1])
     require(directory.is_absolute() and directory == directory.resolve()
         and directory.is_relative_to(scratch) and directory.is_dir())
     binary = directory / 'baton-mixtape-ui-fixture'

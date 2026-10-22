@@ -111,7 +111,7 @@ final class StreamingUploadTests: XCTestCase {
     }
 
     /// Two Content-Lengths, or any Transfer-Encoding, leave the body's framing ambiguous: refused,
-    /// as the buffered parser refuses them, instead of the last length winning (TBX-1000000494 review).
+    /// as the buffered parser refuses them, instead of the last length winning.
     func testAmbiguousFramingIsRefused() {
         for headers in ["Content-Length: 3\r\nContent-Length: 3", "Content-Length: 3\r\ncontent-length: 900",
                         "Content-Length: 3\r\nTransfer-Encoding: chunked", "Transfer-Encoding: identity\r\nContent-Length: 3"] {
@@ -196,7 +196,7 @@ final class StreamingUploadTests: XCTestCase {
         }
     }
 
-    // MARK: - Auth, parsed the way every other route parses it (TBX-5308, S-F26)
+    // MARK: - Auth, parsed the way every other route parses it
 
     /// The upload route did its own case-sensitive `replacingOccurrences(of: "Bearer ")`, so a
     /// spec-legal lower-case scheme was accepted on `GET /v1/files` and refused here.
@@ -211,7 +211,7 @@ final class StreamingUploadTests: XCTestCase {
         XCTAssertNil(wrongScheme?.bearerToken, "only Bearer is a bearer token")
     }
 
-    // MARK: - Header values that try to become headers (TBX-5308, S-F26)
+    // MARK: - Header values that try to become headers
 
     /// `.whitespaces` is space and tab only, so a value ending in a bare LF used to be stored
     /// intact and echoed back into a response head as a second line.
@@ -222,7 +222,7 @@ final class StreamingUploadTests: XCTestCase {
                        "a trailing newline must not be stored as part of the value")
     }
 
-    // MARK: - The staging ceiling and the sweep (TBX-5308, S-F13)
+    // MARK: - The staging ceiling and the sweep
 
     /// The per-file cap is per connection, so it bounds one upload and nothing else. Enough
     /// uploads at once fill the disk a file at a time with every request inside the rules.

@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import BatonGatewayCore
 
-/// What "something like that" means when two conversations overlap (TBX-5308, S-F26).
+/// What "something like that" means when two conversations overlap.
 ///
 /// The gateway held one `lastResults` field on one tool surface, so `music_similar_songs` seeded
 /// from whatever the most recent search had been, whoever made it.

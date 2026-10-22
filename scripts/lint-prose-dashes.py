@@ -212,7 +212,7 @@ def swift_files(roots):
             continue
         for dirpath, dirnames, filenames in os.walk(root):
             # A SwiftPM package keeps `Tests/` beside `Sources/` at its own root (this is
-            # why TBX-5362 widened the default roots to whole packages, e.g. `Packages`,
+            # why an internal task widened the default roots to whole packages, e.g. `Packages`,
             # rather than to a per-package `Sources` list), so walking a package wholesale
             # walks its test target too. Test fixtures are deliberately out of scope, the
             # same call `AppStoreMetadataTests`' keyword-mention guard already made for its

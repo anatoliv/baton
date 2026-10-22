@@ -358,7 +358,7 @@ public enum SettingsTransfer {
         public let secretCount: Int
         /// Secrets the file carried that the Keychain refused. Non-zero means the import was
         /// partial, and the caller must say so rather than reporting the ones that worked
-        ///.
+        ///
         public let secretsRefused: Int
         public let documentCount: Int
         public let appVersion: String?

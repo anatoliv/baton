@@ -84,7 +84,7 @@ final class SonicProfileStoreTests: XCTestCase {
         XCTAssertTrue(present)
     }
 
-    // MARK: - The move onto VersionedStore (S-F14 / TBX-5354)
+    // MARK: - The move onto VersionedStore (S-F14)
 
     /// Exactly what the pre-`VersionedStore` `persist()` wrote: a raw dictionary, no envelope.
     ///

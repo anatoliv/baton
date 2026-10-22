@@ -109,7 +109,7 @@ if [ -f "$APPCAST" ]; then
 fi
 
 # --- Both hostnames must serve the same appcast -------------------------------
-# TBX-5306. The site moved to batonmusic.app, but SUFeedURL is compiled into the
+# An internal task. The site moved to batonmusic.app, but SUFeedURL is compiled into the
 # app and every Mac build up to 0.18.1 polls https://baton.tonebox.io/appcast.xml
 # and nothing else. That hostname is the only route to those machines. If it ever
 # stops serving the appcast — a tidied vhost, an expired cert, a DNS record

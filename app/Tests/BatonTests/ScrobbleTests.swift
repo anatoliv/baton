@@ -13,7 +13,7 @@ private final class MockDestination: ScrobbleDestination {
     let maxBatch: Int
     var failFirst: Int
     /// When true, `submit` throws a *permanent* rejection (burns a queue attempt); otherwise
-    /// a *transient* failure (retried without burning an attempt — ).
+    /// a *transient* failure (retried without burning an attempt — an internal task).
     let permanentFailure: Bool
 
     private(set) var nowPlayingCalls: [Scrobble] = []
@@ -241,7 +241,7 @@ struct ScrobbleServiceTests {
         await service.flushAllAndWait()
         #expect(nav.submitted.isEmpty)                                       // held back
         #expect(queue.take(destination: "navidrome", limit: 10).count == 1) // still queued
-        // : a transient failure must NOT count against maxAttempts.
+        // A transient failure must NOT count against maxAttempts.
         #expect(queue.take(destination: "navidrome", limit: 10).first?.attempts == 0)
 
         await service.flushAllAndWait()

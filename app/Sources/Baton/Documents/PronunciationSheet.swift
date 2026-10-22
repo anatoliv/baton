@@ -34,7 +34,7 @@ enum PronunciationEditing {
     }
 
     /// The rows show what is sent (`PronunciationLexicon.validated`): a stored lexicon from
-    /// before TBX-10947 may hold two model words with one sound, which no renderer sends.
+    /// before an internal task may hold two model words with one sound, which no renderer sends.
     static func rows(_ lexicon: PronunciationLexicon?) -> [Row] {
         (lexicon?.validated().entries ?? []).map { Row(word: $0.word, phonemes: $0.phonemes, source: $0.source) }
     }
@@ -76,7 +76,7 @@ enum PronunciationEditing {
     /// The spell checker as `PronunciationLexicon.candidates` wants it: a word it knows is not
     /// a name to ask about. A lower-case word any installed dialect of the checker's language
     /// knows counts: the default "en" dictionary does not know the British "neighbourhood",
-    /// which put it beside "Netherfield" in the TBX-10886 walk's proposal. Names
+    /// which put it beside "Netherfield" in the walk's proposal. Names
     /// keep the default dictionary alone, since the other dialects know names a voice may still
     /// get wrong ("Vashti" in en_GB, "Kuno" in en_JP). `NSSpellChecker` is main-actor, so it is
     /// reached by a hop.

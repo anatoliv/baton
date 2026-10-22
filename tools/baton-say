@@ -23,7 +23,7 @@
 #
 # The line travels on standard input to the request builder and then in the HTTP body only:
 # never in an environment variable, and with --stdin never in any process's arguments
-# (TBX-9392). An HTTP 200 is not taken as delivery: a JSON-RPC error or an MCP isError
+# An HTTP 200 is not taken as delivery: a JSON-RPC error or an MCP isError
 # result is a failure, and --verbose prints what Baton reports it did (speaking, queued,
 # notified, banner_shown). "speaking" means playback started, not that it was heard.
 

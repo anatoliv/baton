@@ -71,7 +71,7 @@ struct WidgetFreshnessTests {
 
     /// The Live Activity's bar ran from the moment of the push to the end of the track, so a
     /// track pushed at 3:00 of 4:00 showed an empty bar that filled in the last minute
-    /// (TBX-1000000480 B-5). The window starts where the track started.
+    /// The window starts where the track started.
     @Test("A playing card's bar starts at the track's start, not at the push")
     func progressRangeCountsTheElapsedTime() {
         let range = WidgetFreshness.progressRange(now: published, elapsed: 180, duration: 240)

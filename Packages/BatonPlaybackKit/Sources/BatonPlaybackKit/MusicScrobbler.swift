@@ -33,8 +33,8 @@ public final class MusicScrobbler: ScrobbleDestination {
 
     /// Re-read the token, for when something wrote the Keychain underneath this object.
     ///
-    /// "Set up from a Mac" does exactly that, and this object was built at launch (TBX-5114,
-    /// TBX-5123). Without it a post-import connection check validates the token this phone
+    /// "Set up from a Mac" does exactly that, and this object was built at launch (
+    /// An internal task). Without it a post-import connection check validates the token this phone
     /// had before the import and reports the answer with a straight face — which is worse
     /// than not checking, because the check is believed.
     ///

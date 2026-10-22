@@ -114,7 +114,7 @@ final class ShareMixtapeServiceTests: XCTestCase {
         XCTAssertEqual(rows.compactMap { $0["props"]?.text }, [#"{"emoji":"❤️","hasName":false,"hasReply":true,"kind":"mixtape"}"#, #"{"kind":"mixtape"}"#])
     }
     /// A reaction and its event are written together: if the event cannot be recorded, the reaction
-    /// is not kept either, so the sender's list and the usage report never disagree (TBX-1000000507 D-12).
+    /// is not kept either, so the sender's list and the usage report never disagree.
     func testAReactionWhoseEventCannotBeRecordedIsNotKept() throws {
         let created = try ready(try fixture()), admitted = try session(created.id)
         try service.store.database.execute("ALTER TABLE events RENAME TO events_unavailable")
@@ -341,7 +341,7 @@ final class ShareMixtapeServiceTests: XCTestCase {
     }
     /// A mixtape that exists but belongs to another installation secret is not one that ended: the
     /// app deletes a ticket's key only on not_found, so a changed secret must not read as gone
-    /// (TBX-1000000507 C-6, server side). 403, so even an older app that ends on any 404 keeps it.
+    /// 403, so even an older app that ends on any 404 keeps it.
     func testAnotherInstallationsMixtapeIsNotOwnedRatherThanNotFound() throws {
         let created = try ready(try fixture())
         let foreign = send("GET", "/v1/share/mixtapes/\(created.id)", token: other)
@@ -365,7 +365,7 @@ final class ShareMixtapeServiceTests: XCTestCase {
         XCTAssertEqual(missing.status, 404)
         XCTAssertEqual(code(missing), "not_found", "an id with no mixtape is still not_found")
     }
-    /// The sender revoking a held mixtape keeps the operator's case reference (TBX-1000000507 D-18).
+    /// The sender revoking a held mixtape keeps the operator's case reference.
     func testOwnerRevokeOfAHeldMixtapeKeepsTheOperatorsCaseReference() throws {
         let created = try ready(try fixture(consent: true))
         let start = Int64(clock.now.timeIntervalSince1970)

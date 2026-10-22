@@ -130,7 +130,7 @@ public final class PodcastCapabilityStore {
     /// Injectable clock for tests.
     public nonisolated(unsafe) static var now: () -> Date = { Date() }
 
-    public func persisted(for serverID: UUID) -> Bool? { // internal for  expiry test
+    public func persisted(for serverID: UUID) -> Bool? { // internal for an internal task expiry test
         let key = Self.storageKey(for: serverID)
         guard defaults.object(forKey: key) != nil else { return nil }
         let supported = defaults.bool(forKey: key)

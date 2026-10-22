@@ -3,7 +3,7 @@ import BatonSubsonicModels
 @testable import BatonPlaybackKit
 
 /// A book plays through all its chapters, in order, even when only the first was on this device
-/// at Play (TBX-10991, "If clip contains multiple chapters play all continuous").
+/// at Play.
 ///
 /// Found on the iPhone: Play queued only the chapters already here, so a book whose later chapters
 /// were still being made or brought down stopped at the end of the last one present. Each chapter

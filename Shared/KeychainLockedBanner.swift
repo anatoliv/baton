@@ -7,7 +7,7 @@ import SwiftUI
 /// call site turned a failure into `""`, and the app then authenticated with an empty password and
 /// rendered an empty library. The reason went to `os_log`, where nobody looks. That is how a locked
 /// login Keychain presented, for four and a half hours, as "Baton did not start properly"
-/// (TBX-5265 was the same lock seen from the signing side; TBX-5268 is this half).
+///
 ///
 /// The distinction is worth a banner rather than a better error string because the two states want
 /// **opposite** things from the user. "No password saved" asks them to type one in. "Keychain

@@ -7,7 +7,7 @@ import XCTest
 /// A listen a service rejects outright (ListenBrainz answers 400 for a `listened_at` before
 /// 2002 or an empty track name) is a definitive rejection, not a temporary one. Filed as
 /// temporary it never burned an attempt, so the queue head was retried forever and every later
-/// listen for that service waited behind it (TBX-1000000480 C2-8).
+/// listen for that service waited behind it.
 @MainActor
 final class ScrobbleClassificationPackageTests: XCTestCase {
     func testA4xxOtherThanTimeoutAndRateLimitIsPermanent() {
@@ -87,7 +87,7 @@ final class ScrobbleClassificationPackageTests: XCTestCase {
 }
 
 /// Answers 400 for any batch holding one song and accepts the rest.
-// MARK: - TBX-1000000506
+// MARK: - an internal task
 
 @MainActor
 final class ScrobbleFollowUpPackageTests: XCTestCase {

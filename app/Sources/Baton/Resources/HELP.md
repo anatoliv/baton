@@ -2955,6 +2955,13 @@ The control server exposes **41 music operations**. They're the same actions Bat
 interface uses, so anything an agent does is something you could have done by hand. Here's the
 full catalog.
 
+Each song comes with an id the agent hands back to act on it. A song from your music server keeps
+the server's own id. A podcast episode or a file on this Mac gets a code starting with `s1_`
+instead of its feed address or its path, so neither your folders nor a podcast's tracking
+links reach the agent's model provider. Baton remembers the codes it has given out, so an agent
+can keep using one after Baton restarts. A code for a song Baton can no longer find is refused
+with a note asking the agent to list again for a current one.
+
 **Search and play:**
 
 | Tool | What it does | Main inputs |

@@ -24,7 +24,7 @@ public extension View {
     /// underneath stay in the tree, so a swipe still reaches a row that is not on the
     /// screen, and a screenshot of the fixed screen looks identical to a screenshot of the
     /// broken one. `Shared/ContentStateView.swift` hit this with the phone's empty states
-    ///; the Mac's full-screen player was the same shape.
+    /// the Mac's full-screen player was the same shape.
     ///
     /// The two halves belong together, which is why this is one modifier rather than two
     /// lines at each call site: writing `.overlay` and forgetting `accessibilityHidden` is

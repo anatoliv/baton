@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 @testable import Baton
 
-/// TBX-1000000034: after the in-place Sparkle update to 0.20.4, pbs still listed only Speak and
+/// After the in-place Sparkle update to 0.20.4, pbs still listed only Speak and
 /// Summarize with Baton for /Applications/Baton.app. "Make an Audiobook with Baton" appeared
 /// only after a manual `pbs -update`. Baton now asks for that refresh itself, once per launch.
 ///

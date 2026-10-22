@@ -336,7 +336,7 @@ final class TransportTests: XCTestCase {
     }
 
     /// An upload the refusal hook turns away is answered from its head, before any staging is
-    /// reserved or a byte of body is read (TBX-1000000496 D-15). Before the hook, a head with a
+    /// reserved or a byte of body is read. Before the hook, a head with a
     /// large `Content-Length` and no credential held its reservation until the peer went quiet.
     func testARefusedUploadHeadIsAnsweredBeforeAnythingIsStaged() throws {
         let asked = Recorder()
@@ -359,7 +359,7 @@ final class TransportTests: XCTestCase {
 
     /// A refusal sent while the body is still arriving must reach the client. Closing a socket with
     /// unread data resets the connection, which can destroy the answer before it is read; behind
-    /// nginx with request buffering off that reads as 502 instead of 401 (TBX-1000000496 D-15).
+    /// nginx with request buffering off that reads as 502 instead of 401.
     func testAnUploadRefusedWhileItsBodyIsArrivingStillGetsItsAnswer() throws {
         let port = try start(refusesUpload: { _ in httpErrorResponse(status: "401 Unauthorized", message: "no") })
         for _ in 0 ..< 5 {
@@ -472,16 +472,16 @@ final class TransportTests: XCTestCase {
         XCTAssertEqual(parsed["error"] as? String, message, "and must carry the message unchanged")
     }
 
-    // MARK: - TBX-5325: a `session_id` in the request has to reach the seed store, over the wire
+    // MARK: - A `session_id` in the request has to reach the seed store, over the wire
 
     /// The gateway's `/v1/agent` handler reads `session_id` from the JSON body and threads it
     /// through to whatever tool ran (`main.swift`'s `route`, then `GatewayToolSurface.run`); that
     /// code lives in the executable target, which no test target can import — the same reason
-    /// `Transport.swift` itself had no tests before TBX-5308. This test cannot reach
+    /// `Transport.swift` itself had no tests before an internal task. This test cannot reach
     /// `GatewayToolSurface` directly, so it drives the same shape end to end instead: a real HTTP
     /// POST over a real socket, through `HTTPRequestMessage` parsing, into a JSON body decode of
     /// `session_id`, keying the same `SearchSeedStore` the real tool surface uses. What it proves
-    /// is the wiring PR #53 promised and TBX-5325 found missing on the phone's end: two
+    /// is the wiring PR #53 promised and an internal task found missing on the phone's end: two
     /// conversations that each send their own `session_id` do not see each other's seed.
     /// `SearchSeedStore` documents itself as not thread-safe on purpose — in production it is
     /// only ever touched from the `@MainActor` tool surface. The `handle` closure here runs on

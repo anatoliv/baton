@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# testflight.sh says what happened, and its exit code agrees. (TBX-5317, D-F3/D-F4/D-F5)
+# testflight.sh says what happened, and its exit code agrees.
 #
 # WHY THIS EXISTS. Three defects in the same script, all of the same family: the log said
 # one thing and the exit status said another, and nothing anywhere could tell.
@@ -60,7 +60,7 @@ trap 'rm -rf "$WORK"' EXIT
 METADATA_BLOCK="$(awk '/^if \[ "\$\{SKIP_METADATA:-0\}" != "1" \]; then$/,/^fi$/' "$SUBJECT")"
 SUMMARY_BLOCK="$(awk '/^if \[ "\$ATTACHED" = 1 \]; then$/,/^fi$/' "$SUBJECT")"
 PRINT_SKIPPED="$(awk '/^print_skipped\(\) \{$/,/^\}$/' "$SUBJECT")"
-# The summary calls this too, so the endings cannot be run without it. (TBX-5372)
+# The summary calls this too, so the endings cannot be run without it.
 DSYM_STATE_FN="$(awk '/^print_dsym_state\(\) \{$/,/^\}$/' "$SUBJECT")"
 
 for name in METADATA_BLOCK SUMMARY_BLOCK PRINT_SKIPPED DSYM_STATE_FN; do
@@ -241,7 +241,7 @@ else
   ok "D-F5 every SKIP_* hatch in testflight.sh pushes onto the skip list"
 fi
 
-# --- TBX-5372: the archive's dSYM is copied out before the archive is gone ---------------
+# --- The archive's dSYM is copied out before the archive is gone ---------------
 #
 # WHY. testflight.sh removed build/Baton.xcarchive at the top of every archive step, so the
 # "retained in the archive" dSYM lasted exactly one release. The Mac side lost 0.19.2's the
@@ -415,7 +415,7 @@ else
   bad "TBX-5498: the destructive canary build flag is no longer fail-closed"
 fi
 
-# --- TBX-1000000480: the signing setup and its cleanup leave the machine as they found it --
+# --- The signing setup and its cleanup leave the machine as they found it --
 #
 # The real stretch from the end of the metadata step through the project.yml patch is run
 # as one piece: the per-run temp state, cleanup(), its trap, the temp keychain and the

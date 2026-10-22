@@ -5,7 +5,7 @@ import SwiftUI
 
 /// The dialogue cast on the import sheet (G4, `specs/document-clippings.md`, *Dialogue cast*):
 /// a per-book "Voice the dialogue" switch, off for the first book on a Mac and then as the
-/// person last left it there (`remembered`, TBX-10916); when on, a cast list written by a
+/// person last left it there (`remembered`); when on, a cast list written by a
 /// model through `ModelRouter` (`ModelTask.castSheet`: excerpts, so local sources first and a
 /// cloud one only with the person's consent), shown for correction before anything uses it.
 ///
@@ -14,10 +14,10 @@ import SwiftUI
 /// that found nobody, the sheet says so and the book is read by the narrator alone.
 ///
 /// Once the cast is checked, a model places the lines the rules leave (`DialogueCast.fill`,
-/// TBX-10894: rules first, then a model, so most lines get a voice). With no model the rules'
+/// Rules first, then a model, so most lines get a voice). With no model the rules'
 /// lines stand and the sheet says so in one line.
 ///
-/// The flow itself is shared with the iPhone (`DialogueCastFlow`, TBX-11141); this Mac brings
+/// The flow itself is shared with the iPhone (`DialogueCastFlow`); this Mac brings
 /// its models, its voices and its words.
 typealias DialogueCastChoice = DialogueCastFlow.Choice
 

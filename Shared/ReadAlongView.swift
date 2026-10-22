@@ -2,7 +2,7 @@ import BatonDocuments
 import BatonPlaybackKit
 import SwiftUI
 
-/// Read-along (`specs/document-clippings.md`, *Expansions* 6; TBX-10960): a chapter of a book
+/// Read-along (`specs/document-clippings.md`, *Expansions* 6): a chapter of a book
 /// as text, with the sentence being heard lit, following the playhead, and every sentence a
 /// place to seek to. Shared verbatim by the Mac (the player's Transcript panel for a book, and
 /// Read Along from a book in Clippings) and the iPhone (the full player).
@@ -11,7 +11,7 @@ import SwiftUI
 /// chapter made before timing was kept shows its words without a highlight, and says why.
 ///
 /// Following stops when the reader scrolls and resumes when they ask or tap a sentence, the
-/// rule the transcript pane learned in TBX-2986: a highlight that moves every few seconds and
+/// rule the transcript pane learned in an internal task: a highlight that moves every few seconds and
 /// drags the list back with it makes the text unreadable for anyone looking around.
 struct ReadAlongPanel: View {
     let item: ClippingStore.Item
@@ -55,7 +55,7 @@ struct ReadAlongPanel: View {
         #if DEBUG
         // DEBUG only: the playhead this panel was given, so a UI test reads it and the lit
         // sentence in one query and can tell the panel's lag from its own slow sampling
-        //. Not for VoiceOver: a release build says nothing extra.
+        // Not for VoiceOver: a release build says nothing extra.
         .accessibilityValue(currentTime.map { String(format: "playhead %.2f", $0) } ?? "")
         #endif
         // By the audio as well as the chapter: a chapter given a new voice keeps its row and

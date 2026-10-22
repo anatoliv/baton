@@ -16,7 +16,7 @@ let documentsLog = Logger(subsystem: "io.tonebox.baton", category: "documents")
 /// the phone has. Chapters come down into Clippings through `HomeServerBooks`, the same code the
 /// Mac uses for "Made on: Home server".
 ///
-/// `baton.documents.enabled` is the same key as the Mac's and, since TBX-10801, on unless this
+/// `baton.documents.enabled` is the same key as the Mac's and, since an internal task, on unless this
 /// phone stored `false` from the **Documents** toggle in Settings. It stays on this device: it is
 /// not a synced preference, and `SessionPurge` resetting it means "on again".
 @MainActor

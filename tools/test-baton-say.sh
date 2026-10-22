@@ -1,6 +1,6 @@
 #!/bin/zsh
 # test-baton-say.sh — drive tools/baton-say against a throwaway local server that answers
-# the way Baton can (TBX-9392). No Baton, no audio, about two seconds.
+# the way Baton can. No Baton, no audio, about two seconds.
 #
 # It checks the things an HTTP 200 used to hide: a JSON-RPC error, an MCP isError result, a
 # reply that says nothing about delivery, and an event stream led by an "event:" line. It

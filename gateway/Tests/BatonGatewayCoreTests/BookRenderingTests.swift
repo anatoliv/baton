@@ -135,7 +135,7 @@ final class FFmpegMuxerTests: XCTestCase {
         XCTAssertTrue(text.contains("TAG:track=1/1"), text)
     }
 
-    /// TBX-10845: every chapter mark lands where its chapter starts in the joined file. Twelve
+    /// Every chapter mark lands where its chapter starts in the joined file. Twelve
     /// chapters of real AAC from the gateway's own `encode`, each 0.25 s of silence then a tone
     /// of its own, joined by `exportM4B` with marks from the rendered lengths. Checked three
     /// ways: each chapter's first packet in the joined file sits on its mark; the joined file
@@ -462,7 +462,7 @@ final class BookRoutesTests: XCTestCase {
         XCTAssertEqual(status(r12), "413 Payload Too Large")
     }
 
-    /// TBX-10902: a cast book's id carries who speaks each line. The gateway recomputes it, so
+    /// A cast book's id carries who speaks each line. The gateway recomputes it, so
     /// it takes a cast book under the id with the attribution, refuses the id the same book had
     /// before (what a gateway without this change computes, and so the answer such a gateway
     /// gives a client with it: 400, "book id does not match its content"), and treats the same
@@ -490,7 +490,7 @@ final class BookRoutesTests: XCTestCase {
         let rules = castBook(nil), filled = castBook("Tom")
         let rulesID = BookJob.id(for: rules), filledID = BookJob.id(for: filled)
         XCTAssertNotEqual(rulesID, filledID, "the same voices, a line given to someone else")
-        // The id before TBX-10902: the document, the voices, no lexicon. Both books had it.
+        // The id before an internal task: the document, the voices, no lexicon. Both books had it.
         let previousID = SHA256Digest.hex(of: Data("book-v1|\(rules.documentID)|".utf8) + (try BookJSON.encoder.encode(rules.voices)))
         XCTAssertNotEqual(previousID, rulesID)
 
@@ -511,7 +511,7 @@ final class BookRoutesTests: XCTestCase {
         XCTAssertTrue(synth.calls.contains { $0.text == "Only me." && $0.voice == "kokoro:bf_isabella" })
     }
 
-    /// TBX-10960: a chapter's read-along timing through the route, and a 404, the same answer an
+    /// A chapter's read-along timing through the route, and a 404, the same answer an
     /// older gateway gives, for a chapter made before timing was kept.
     @MainActor
     func testAReadyChapterServesItsReadAlongTiming() async throws {
@@ -741,7 +741,7 @@ final class BookRoutesTests: XCTestCase {
     /// The two clients end to end through the real routes: the Mac's `GatewayBookClient` sends
     /// a book it made, and the iPhone's, which did not send it, finds it in the listing under its
     /// document, fetches the shaped book, and downloads each chapter checked against its digest
-    /// with its read-along timing: the TBX-10985 adoption path, unchanged.
+    /// with its read-along timing: the adoption path, unchanged.
     @MainActor
     func testWhatTheMacUploadsTheIPhoneDownloadsThroughTheRealRoutes() async throws {
         let dir = tempDirectory()

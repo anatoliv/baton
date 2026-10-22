@@ -3,7 +3,7 @@ import XCTest
 import BatonDSP
 @testable import BatonPlaybackKit
 
-/// TBX-5360 rewrote `process(_:)`'s three nested loops (channel, sample, band) from
+/// An internal task rewrote `process(_:)`'s three nested loops (channel, sample, band) from
 /// `for ... in 0 ..< n` to `while`, for the allocation reason `EQTapContextAllocationTests`
 /// covers. A loop-shape change to the code that actually shapes the audio must not move a
 /// single sample, so this recomputes the same Direct Form II Transposed cascade with plain

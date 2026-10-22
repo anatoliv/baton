@@ -401,7 +401,7 @@ public final class PreferenceSync {
     ///
     /// For a wipe of this device's account data. The wipe removes synced keys, and without this
     /// each removal is a stamped change of a key held at the last sync, which the push turns
-    /// into a tombstone that clears the setting on every other device (TBX-1000000480 B-1).
+    /// into a tombstone that clears the setting on every other device.
     /// The snapshot is refreshed too, so a change notification still on its way from the
     /// removals finds nothing moved and stamps nothing.
     public func forgetLocalHistory() {
@@ -608,7 +608,7 @@ public final class PreferenceSync {
             // snapshot, so the snapshot takes the adopted value first; otherwise every key this
             // device pulled was re-stamped as its own edit and pushed back under its name on
             // the next sync, which is how one fresh simulator rewrote the whole shared document
-            //. Before the write, because the notification can arrive synchronously.
+            // Before the write, because the notification can arrive synchronously.
             if entry.isTombstone {
                 if defaults.object(forKey: key) != nil {
                     snapshot[key] = nil

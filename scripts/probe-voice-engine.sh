@@ -1,5 +1,5 @@
 #!/bin/bash
-# Settings → Speech → Voice engine for books (TBX-10909), on a probe instance, never the owner's
+# Settings → Speech → Voice engine for books, on a probe instance, never the owner's
 # Baton:
 #
 #   scripts/probe-voice-engine.sh <Baton.app> <evidence-dir> [<kokoro-model-dir>]

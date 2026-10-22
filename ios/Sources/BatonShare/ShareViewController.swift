@@ -76,7 +76,7 @@ final class ShareViewController: UIViewController {
 
     /// Which of the title fields the share carried (attributedTitle, attributedContentText, the
     /// provider's suggested name), so a host app that names its page another way can be found
-    ///. The words themselves only in a debug build.
+    /// The words themselves only in a debug build.
     private static func logTitles(_ candidates: [String?]) {
         let present = candidates.map { ($0?.isEmpty == false) ? "yes" : "no" }.joined(separator: ",")
         log.info("share title fields present: \(present, privacy: .public)")

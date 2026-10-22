@@ -3,7 +3,7 @@ import BatonShareKit
 import Foundation
 import XCTest
 
-/// Current behavior characterization for TBX-8937; these fixtures do not adopt
+/// Current behavior characterization for an internal task; these fixtures do not adopt
 /// a retention policy or implement a legal clock/court-order workflow.
 extension ShareEnforcementTests {
     private func restorationFixture() throws {

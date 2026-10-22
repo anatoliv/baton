@@ -52,7 +52,7 @@ enum VoiceSuggestions {
     /// The voices a book made on this Mac can use, as `"engine:voice"` specs, under Voice engine
     /// for books, for the narrator, cast and Change Voice pickers:
     /// - Automatic: the Kokoro host's voices, or when none answers the built-in "This Mac" voices
-    /// if their model is downloaded, so import still offers a choice; then every
+    ///   if their model is downloaded, so import still offers a choice; then every
     ///   other configured engine's voices.
     /// - Built-in voices on this Mac: the built-in voices only, never asking a server.
     /// - Voice server: the Kokoro host's voices, then every other configured engine's.

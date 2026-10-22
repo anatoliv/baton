@@ -75,7 +75,8 @@ enum BatonMCPResources {
             "contents": [[
                 "uri": uri,
                 "mimeType": "application/json",
-                "text": json,
+                // Song ids as the tools give them: no file or feed address.
+                "text": MCPSongIDs.shared.outgoing(json),
             ]],
         ]
     }

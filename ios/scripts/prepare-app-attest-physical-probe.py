@@ -36,7 +36,7 @@ def prepare(template, destination, suite):
     # Same approved App ID/profile, but no normal app source/model/package/framework
     # initialization. Keep the existing widget extension embedded without changing it.
     # BatonShare (io.tonebox.baton.share) is embedded by BatonMobile only; the probe host
-    # does not embed it, so it needs no Debug profile here (TBX-10944).
+    # does not embed it, so it needs no Debug profile here.
     debug = copy.deepcopy(targets["BatonMobile"]["settings"]["configs"]["Debug"])
     targets[host] = {
         "type": "application", "platform": "iOS",

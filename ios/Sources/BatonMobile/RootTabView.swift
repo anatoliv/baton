@@ -10,7 +10,7 @@ struct RootTabView: View {
     @State private var showsFullPlayer = false
     @State private var showsWhatsNew = false
     /// When a pending document may take the launch sheet, and the watch that asks again until
-    /// it has (TBX-10889, `ImportPresentation`).
+    /// it has.
     @State private var importPresentation = ImportPresentation()
     @State private var importWatch: Task<Void, Never>?
     @State private var incomingShareSceneID = UUID()
@@ -91,7 +91,7 @@ struct RootTabView: View {
             // *different* `UserDefaults` domains and a UI test could never see friend sync
             // work — while reporting nothing wrong. That was read from the code and never
             // run, and a claim like that gets believed until somebody contradicts it
-            //. This is how it gets contradicted or confirmed, by measurement.
+            // This is how it gets contradicted or confirmed, by measurement.
             //
             // The handshake is a write through one side read back through the other, not a
             // comparison of two objects: two `UserDefaults` instances over the same suite
@@ -103,7 +103,7 @@ struct RootTabView: View {
                     .accessibilityIdentifier("debug.storageDomains")
                     .allowsHitTesting(false)
             }
-            // TBX-5336: whether a value passed through `app.launchEnvironment` actually
+            // Whether a value passed through `app.launchEnvironment` actually
             // reached this process. `LaunchEnvironmentReliabilityTests` sets a fresh value
             // every launch and reads it back here, N times in a row, to measure the
             // delivery rate directly rather than infer it from a feature's side effects —

@@ -92,7 +92,7 @@ final class EngineRetryLadderTests: XCTestCase {
     }
 
     /// A retry scheduled for one track must not run once another has been loaded
-    /// (TBX-1000000480 C1-6). The rung only checked that the engine was still `.loading`, which
+    /// The rung only checked that the engine was still `.loading`, which
     /// the next track's own load is too, so it reloaded the old track under the new one's name.
     func testARetryForTheOldTrackDoesNotReplaceANewlyLoadedOne() async throws {
         let wav = EngineTestSignals.sineWAV(frequency: 440, seconds: 30)

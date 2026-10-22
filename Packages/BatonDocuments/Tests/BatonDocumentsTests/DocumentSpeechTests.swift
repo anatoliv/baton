@@ -263,7 +263,7 @@ final class SecretRedactorTests: XCTestCase {
         XCTAssertEqual(SecretRedactor.redact(once), once)
     }
 
-    /// C3-10 follow-up: the Discord and prefixed-name shapes added for TBX-1000000480 also took
+    /// C3-10 follow-up: the Discord and prefixed-name shapes added for an internal task also took
     /// ordinary code and settings. A Discord token's first part is the base64 of a decimal user
     /// id, and a prefixed setting whose value is a flag or a count is not a secret.
     func testCodeAndSettingsThatOnlyLookLikeTheNewShapesAreLeftAlone() {

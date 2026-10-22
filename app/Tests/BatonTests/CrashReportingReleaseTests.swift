@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// TBX-5101: a crash report is only actionable against a known revision.
+/// A crash report is only actionable against a known revision.
 ///
 /// The live 0.17.12 Mac build carries version strings and nothing else, so every
 /// event it ever sent is filed under a release id that a dozen different commits

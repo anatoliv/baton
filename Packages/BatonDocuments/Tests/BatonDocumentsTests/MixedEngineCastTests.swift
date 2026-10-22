@@ -142,7 +142,7 @@ final class MixedEngineCastTests: XCTestCase {
         XCTAssertEqual(WAV.converting(tone(18_000), from: mono48, to: kokoro), high, "deterministic")
     }
 
-    /// A book in one format is joined exactly as before mixed engines were (TBX-11141's review
+    /// A book in one format is joined exactly as before mixed engines were (review
     /// measured these on f840d9bb, with the copy encoder): Kokoro alone, a Kokoro cast, and an
     /// expressive narrator alone.
     func testABookInOneFormatIsMadeByteForByteAsBefore() async throws {

@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import BatonSubsonicKit
 
-/// Test suites must not outlive the test process (TBX-7443: 20,262 leftover plists).
+/// Test suites must not outlive the test process.
 final class ThrowawayDefaultsTests: XCTestCase {
     private let uuid = "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0"
 
@@ -101,7 +101,7 @@ final class ThrowawayDefaultsTests: XCTestCase {
     }
     #endif
 
-    /// No test builds its own UUID-named suite. TBX-7443 fixed one prefix and 57 more kept
+    /// No test builds its own UUID-named suite. An internal task fixed one prefix and 57 more kept
     /// leaking (45,310 plists) because nothing stopped a new prefix. So this reads every test
     /// source in the repository and fails on a UUID-bearing string handed to
     /// `UserDefaults(suiteName:` or stored in anything called `suite…`. Route the

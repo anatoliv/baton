@@ -3,7 +3,7 @@
 # scripts/lint-public-safe.sh runs publish-repo.sh's own secrets guard early, at merge.
 # This proves it still finds every block it extracts, refuses what the mirror refuses,
 # honors the mirror's excludes, and in --diff mode reports only what a branch changed.
-# (TBX-11003) Planted trees only; nothing is published. About two seconds.
+# Planted trees only; nothing is published. About two seconds.
 # shellcheck disable=SC2016 # stubs and greps carry literal $NAMES
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit
@@ -113,7 +113,7 @@ MIRROR="$WORK/inherited-mirror"
 mkdir -p "$MIRROR/evidence/old" "$MIRROR/app"
 printf 'internal result fixture\n' >"$MIRROR/evidence/old/result-path.txt"
 printf 'public app fixture\n' >"$MIRROR/app/Keep.swift"
-# The purge is derived from EXCLUDES (TBX-1000000503 F-8), so both blocks run together.
+# The purge is derived from EXCLUDES, so both blocks run together.
 EXCL="$(rk_extract_block "$ROOT/scripts/publish-repo.sh" '^EXCLUDES=[(]$' '^[)]$' 'the EXCLUDES list')"
 PURGE="$(rk_extract_block "$ROOT/scripts/publish-repo.sh" '^for exclude in "[$][{]EXCLUDES\[@\][}]"; do$' '^done   # end of the purge of excluded paths$' 'the purge of excluded paths')"
 # shellcheck disable=SC2329 # fail is called by the evaluated purge
@@ -124,7 +124,7 @@ else
   bad "excluded internal evidence survives the public mirror purge"
 fi
 
-# TBX-1000000605: GitHub push protection refused a mirror push for a real-shaped Discord bot
+# GitHub push protection refused a mirror push for a real-shaped Discord bot
 # token in a test fixture, which the guard had passed. Each shape it refuses is planted in a
 # test file of a fresh tree and must be refused by the same guard; the runtime-assembled form
 # fixtures use must pass. Every token here is built from pieces, so no line of this file is one.

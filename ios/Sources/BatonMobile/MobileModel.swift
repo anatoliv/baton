@@ -130,7 +130,7 @@ final class MobileModel {
     func offerImport(_ url: URL) {
         // A Baton share link is not a page to read, and its fragment is the song's key: kept as
         // one it was written to disk, named a document after itself and sent to the gateway by
-        // Send to my Mac (TBX-1000000505 B-6). Any other page is kept without its fragment.
+        // Send to my Mac. Any other page is kept without its fragment.
         if !url.isFileURL {
             guard !PendingShareInbox.isBatonShareLink(url) else {
                 linkFailure = Self.shareLinkIsNotADocument
@@ -299,7 +299,7 @@ final class MobileModel {
     /// `-baton.resetSession -baton.demoMode YES` is the single most common pair across the UI
     /// suite. Seeding this key before `wipeStores()` runs would just have the reset erase it
     /// again; reading the override here, after the reset has already happened, is what
-    /// TBX-5326's `-baton.review.*` env vars and this file's `resetArgument` above already do
+    /// An internal task `-baton.review.*` env vars and this file's `resetArgument` above already do
     /// for the same reason — was a bare `-baton.demoMode YES` launch argument.
     private static var wantsDemoMode: Bool {
         #if DEBUG
@@ -318,7 +318,7 @@ final class MobileModel {
     ///
     /// DEBUG-only, and driven by a launch environment key no shipping build passes.
     ///
-    /// Was a bare `-baton.resetSession` launch argument. TBX-5336:
+    /// Was a bare `-baton.resetSession` launch argument. An internal task:
     /// `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch
     /// in four, so every UI test now sets this through `app.launchEnvironment` instead, read
     /// here via `ProcessInfo.processInfo.environment`.
@@ -332,7 +332,7 @@ final class MobileModel {
     /// item nobody could see while a test asserting absence stayed green.
     ///
     /// DEBUG-only and driven by a launch environment key no shipping build passes, like the
-    /// reset above (TBX-5336: was `-baton.seedClipping`).
+    /// reset above.
     static let seedClippingArgument = "baton.seedClipping"
     /// DEBUG only: a plain-text document, handed in by a UI test as the words themselves, so the
     /// import screen can be walked offline (`DocumentImportUITests`). Environment, never a
@@ -406,7 +406,7 @@ final class MobileModel {
         if MobileDocuments.isEnabled(), let kept = PendingImportStore.shared.restore() {
             pendingDocumentImport = kept
         } else if !MobileDocuments.isEnabled() {
-            // Documents off: not offered, but still not kept past its age (TBX-1000000505 B-22).
+            // Documents off: not offered, but still not kept past its age.
             PendingImportStore.shared.dropIfExpired()
         }
 
@@ -425,7 +425,7 @@ final class MobileModel {
             agentConfig.gatewayToken = token
         }
         // A hosted music friend model with a key, for the recap's cloud consent question
-        //. The key is a stand-in: the test never lets the phone reach that host.
+        // The key is a stand-in: the test never lets the phone reach that host.
         if let key = launch["uitestAgentAPIKey"], !key.isEmpty { agentConfig.apiKey = key }
         if let file = launch["uitestImportFile"], FileManager.default.fileExists(atPath: file) {
             pendingDocumentImport = URL(fileURLWithPath: file)
@@ -560,7 +560,7 @@ final class MobileModel {
         lastfm.reload()
         musicLibrary.refreshConnection()
         // The device link fixed its gateway address when it started, so without a restart it
-        // went on polling the old host with the imported token (TBX-1000000480 B-8). And on a
+        // went on polling the old host with the imported token. And on a
         // fresh phone it never started, because there was no gateway until now: start it here
         // rather than at the next foreground. The import runs on screen, so
         // this is the foreground the scene phase would have started it in.
@@ -670,7 +670,7 @@ final class MobileModel {
     }
 
     /// Whether the heartbeat is running. A sync that silently never fires is the whole of
-    /// TBX-4019, and nothing else about the app looks different when it doesn't.
+    /// An internal task, and nothing else about the app looks different when it doesn't.
     var isSyncHeartbeatRunning: Bool { syncLoop != nil }
 
     /// Exchanges shared preferences with the gateway, if there is one.
@@ -733,7 +733,7 @@ final class MobileModel {
 
     /// A book's place and finished mark go to the other device when listening halts here: on
     /// pause and stop, debounced, and at once on leaving the foreground. Before this
-    /// they waited for the next foreground or the ten-minute heartbeat, which the TBX-10974 walk
+    /// they waited for the next foreground or the ten-minute heartbeat, which the walk
     /// measured at 8 to 10 minutes. The push is the ordinary forced sync, so
     /// `BATON_DEBUG_PREFERENCE_SYNC=off` and an unconfigured gateway still make it a no-op.
     func installBookLedgerPush(delay: Duration = BookLedgerPush.defaultDelay,
@@ -787,7 +787,7 @@ final class MobileModel {
         // a server". Mirrors KeepFloat's `-uitestFreshLogin`; never compiled into release.
         //
         // Was read through `UserDefaults.standard` off a bare `-key value` launch argument
-        // (NSArgumentDomain). TBX-5336: `XCUIApplication.launchArguments` drops a whole
+        // (NSArgumentDomain). `XCUIApplication.launchArguments` drops a whole
         // `-key value` group about one launch in four, so every UI test now sets these
         // through `app.launchEnvironment` instead:
         //
@@ -839,7 +839,7 @@ final class MobileModel {
         // provider and a turn that happens to go that way. Without this the only way to see
         // the section was to hand-edit `remote-memory.json` inside a simulator container,
         // and a screen that can only be reached that way is one nobody checks twice
-        //. Same shape and the same DEBUG-only rule as `-baton.seedClipping`.
+        // Same shape and the same DEBUG-only rule as `-baton.seedClipping`.
         //
         // **It replaces rather than appends, and that is the whole point.** The first version
         // seeded only when the store was empty, which made it a fixture that depended on
@@ -1052,7 +1052,7 @@ extension MobileModel {
 
     /// The gateway Settings configures and its token, or nil until both are set, or when the
     /// address is one the token must not be sent to: plain HTTP to an IP address off the home
-    /// network (`GatewayAddress.allowsBearer`, TBX-1000000505 B-9). Every gateway client on the
+    /// network (`GatewayAddress.allowsBearer`). Every gateway client on the
     /// phone that carries the token starts here or at `bearerGateway(address:token:)`: the book
     /// client, Send to my Mac, kept readings, preference sync and the place pull before Play, and
     /// recaps and the dialogue cast (`MobileRecap.liveRouting`). The device link and the agent

@@ -14,7 +14,8 @@ import sys
 import time
 from urllib.parse import urlencode, urlparse
 from incoming_fixture_lifecycle import FixtureTimeout, write_receipt, write_failure
-from mixtape_owned_lifecycle import CustodyDeadline as Deadline, ReservedOwnedFixture as OwnedFixture, cleanup_qualified, best_effort, retain_custody
+from mixtape_owned_lifecycle import CustodyDeadline as Deadline, cleanup_qualified, best_effort, retain_custody
+from mixtape_simulator_teardown import BoundedTeardownFixture as OwnedFixture
 from incoming_fixture_packages import copy_cache, offline_environment
 from mixtape_composer_observer import ComposerObserver
 

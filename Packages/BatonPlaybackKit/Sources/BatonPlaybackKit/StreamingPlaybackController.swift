@@ -173,7 +173,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// While shuffled, each queue slot's position in `orderBeforeShuffle`. Edits made while
     /// shuffled (Play Next, removal, reordering) are applied to the order shuffle returns to
     /// by position, not by looking the song up, because the same song can be queued twice
-    ///. Nil, or a count that no longer matches the queue, falls back to ids.
+    /// Nil, or a count that no longer matches the queue, falls back to ids.
     private var shuffleOrigin: [Int]?
     private var shuffleOriginIsValid: Bool { orderBeforeShuffle != nil && shuffleOrigin?.count == queue.count }
 
@@ -438,7 +438,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     public private(set) var queueSourceSongIDs: Set<String>?
 
     // Queue-advance decision logic (the pure `Advance` enum + `onTrackEnd`/`onManualNext`) lives
-    // in StreamingPlaybackController+Advance.swift — first extraction of the  decomposition.
+    // in StreamingPlaybackController+Advance.swift — first extraction of the decomposition.
 
     /// Player volume as a percentage 0–100. Mapped to `AVPlayer.volume` (0…1).
     /// Persisted; does NOT move the macOS system output volume.
@@ -463,7 +463,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
             let clamped = SpokenPlaybackOptions.clampRate(spokenRate)
             if spokenRate != clamped { spokenRate = clamped; return }
             // Only a real change is written: rewriting an adopted value would stamp it as a
-            // local edit for `PreferenceSync`, the TBX-10666 class of bug.
+            // local edit for `PreferenceSync`, the class of bug.
             if !adoptingStoredSpokenRate,
                (defaults.object(forKey: Self.spokenRateKey) as? Double).map(Float.init) != clamped {
                 defaults.set(Double(clamped), forKey: Self.spokenRateKey)
@@ -506,7 +506,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     ///
     /// It used to be an `AVQueuePlayer` inline in this file, which is why every transport
     /// verb here was written twice: once through the deck the engine gave us, once through
-    /// the player it did not. (Stage 5b / TBX-2872)
+    /// the player it did not. (Stage 5b)
     @ObservationIgnored private let avDeck = AVPlayerDeck()
     /// The AVPlayer deck's output volume, for a test of what is heard.
     var avDeckVolumeForTesting: Float { avDeck.player.volume }
@@ -539,7 +539,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     ///
     /// Held as the seam rather than as a concrete type: the routing branches this type is
     /// full of exist because there are two renderers, and a second implementation cannot be
-    /// held at all while this field names one of them. (Stage 5b / TBX-2872)
+    /// held at all while this field names one of them. (Stage 5b)
     @ObservationIgnored private var engineDeck: (any PlaybackDeck)?
     /// True while the *current* track is playing on the engine deck — the routing flag
     /// every transport verb consults. False the moment a non-routable track loads.
@@ -725,10 +725,10 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         state != .idle && duration > 1 && abs(time - lastSaved) >= 5
     }
 
-    /// Save the place where listening halts, at once, on Pause and on Stop (TBX-10974 re-walk).
+    /// Save the place where listening halts, at once, on Pause and on Stop.
     ///
     /// The clock saves only every 5 s of the playhead, and a paused or stopped clock never moves
-    /// again, so the place the book's ledger held, and that the TBX-10986 push sent to the other
+    /// again, so the place the book's ledger held, and that the push sent to the other
     /// device, was the last 5 s mark: up to 5 s short, and after a chapter had just ended into
     /// the next one, the end of the chapter before, which the other device played again from
     /// the top. Not while a resume offset is still to be applied (the playhead is not there
@@ -819,7 +819,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     /// The track an end-of-track crossfade is blending into, by id, while one runs. The index
     /// the blend was aimed at stops naming it as soon as the queue changes under the blend (a
     /// Play Next inserts in front of it), so the landing and Play Next both find it by id
-    /// (TBX-1000000506, C1-8).
+    ///
     private var crossfadeTargetID: String?
     /// The queue index of `crossfadeTargetID`, while an end-of-track crossfade runs.
     private var crossfadeTargetIndex: Int? {
@@ -1154,7 +1154,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         let downloader: @MainActor (URL, String) async -> URL? = gaplessPrefetchDownloader ?? { streamURL, songID in
             // Stream the (transcoded) next track to the ephemeral prefetch cache so the
             // boundary can hand off from a local file — zero-gap even for streams.
-            // /PER-03: treat a non-HTTP or error response as failure (was `?? true`),
+            // Treat a non-HTTP or error response as failure (was `?? true`),
             // so an error page never gets cached and handed to the gapless boundary.
             var prefetchRequest = URLRequest(url: streamURL)
             for (name, value) in NavidromeConfig.customHeaders(for: streamURL) {
@@ -1268,7 +1268,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
 
     /// Cached Now Playing artwork URL, resolved once per cover id, so a pause or a seek
     /// pushes the same URL rather than rebuilding one. The salt inside it used to change on
-    /// every build, which made the OS refetch the same image each push; since TBX-5359 it is
+    /// every build, which made the OS refetch the same image each push; since an internal task it is
     /// stable per server, and this cache now just saves the rebuild.
     private var nowPlayingCoverID: String?
     private var nowPlayingDirectArt: URL?
@@ -1387,7 +1387,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     ///   queue un-shuffles around the current track and the music keeps going.
     /// - anything else (not lit): this collection starts shuffled, shuffle mode on. That
     ///   includes shuffle mode being on for some other queue: Shuffle starts shuffled, it
-    ///   never starts a collection in order (TBX-11066 made the rule one rule: Play starts
+    ///   never starts a collection in order (made the rule one rule: Play starts
     ///   in order, Shuffle starts shuffled).
     ///
     /// The middle case is the whole point of the asymmetry. Restarting on the way *off*
@@ -1855,7 +1855,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         }
     }
 
-    /// Give the queued tracks with these ids another picture (a book's cover changed, TBX-11064),
+    /// Give the queued tracks with these ids another picture (a book's cover changed),
     /// and show it on Now Playing at once when one of them is playing. The order shuffle returns
     /// to gets it too: its songs are copies, and the old picture's file is gone by now.
     public func setArtwork(_ url: URL?, forSongIDs ids: Set<String>) {
@@ -2035,7 +2035,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     }
 
     // Loudness-normalization math (loudnessHeadroom + loudnessMultiplier + normalizationGain) lives
-    // in StreamingPlaybackController+Loudness.swift — pure ReplayGain functions,  extraction.
+    // in StreamingPlaybackController+Loudness.swift — pure ReplayGain functions, an internal task extraction.
 
     /// Ramp the fade envelope to `target` over `duration`, then run `then` (e.g. pause).
     /// Cancels any in-flight fade. Used for the sleep-timer fade-out.
@@ -2195,7 +2195,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         // counting the playhead from `startAt`. A track restored at launch, reloaded for the EQ
         // or a deck change, or after a stall, then played from 0:00 with the clock that many
         // seconds ahead, ran on past its end without moving on, and saved inflated podcast
-        // progress (TBX-11063, TBX-1000000492). Those open at their start and seek to the place
+        // progress. Those open at their start and seek to the place
         // once ready, the way a retried track does.
         let honoursOffset = StreamSeek.honoursTimeOffset(url, for: song)
         var deckStart = startAt
@@ -2486,7 +2486,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
     }
 
     /// A song in the queue has other audio under it: a book chapter or a reading made again in
-    /// another voice, or put back in its old one (`ClippingStore.replaceAudio`, TBX-1000000105).
+    /// another voice, or put back in its old one (`ClippingStore.replaceAudio`).
     ///
     /// The file is replaced under the same name, but an `AVPlayerItem` already made from it
     /// keeps the old audio, since an open file outlives its name. The player held two: the
@@ -2997,7 +2997,7 @@ public final class StreamingPlaybackController: RemotePlayerContext {
         var index: Int
         var position: Double
         var source: QueueSource?
-        /// Added for TBX-11066; absent from older snapshots, which decode it as nil.
+        /// Added for an internal task; absent from older snapshots, which decode it as nil.
         var sourceSongIDs: [String]?
         /// While shuffled, the order shuffle returns to and each slot's place in it. Absent from
         /// older snapshots and when not shuffled. Without them a queue restored shuffled could

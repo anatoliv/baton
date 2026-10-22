@@ -266,7 +266,7 @@ final class SpeakableTextTests: XCTestCase {
     /// ("\e[01;31m\e[Kghp_\e[m\e[K…"), which only the stripped-to-nothing reading sees whole, while a
     /// key glued to a word needs the stripped-to-space one. Keeping whichever reading found more
     /// let two glued keys outvote the grep match, and the GitHub token was spoken
-    /// (TBX-1000000504 review, 2026-10-22). Every secret either reading finds is redacted.
+    /// Every secret either reading finds is redacted.
     func testEverySecretEitherReadingFindsIsRedacted() {
         let secondKey = "AKIA" + "ABCDEFGHIJKLMNOP"
         let token = "ghp" + "_Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0UvWxYz"
@@ -281,7 +281,7 @@ final class SpeakableTextTests: XCTestCase {
 
     /// An escape *inside* a secret's value splits it in the spaced reading, so the spaced match
     /// is only its first part. Taking that part out before the joined reading's own, whole match
-    /// cut the secret apart and its tail was spoken (TBX-1000000504 verification, 2026-10-22).
+    /// cut the secret apart and its tail was spoken.
     func testASecretSplitPartWayByAnEscapeIsRedactedWhole() {
         let hi = "\u{1B}[01;31m\u{1B}[K", lo = "\u{1B}[m\u{1B}[K"
         let token = "ghp" + "_Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0UvWxYz"

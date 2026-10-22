@@ -48,7 +48,7 @@ public final class StreamingUpload: @unchecked Sendable {
         /// which is case-sensitive, while everything else went through
         /// `HTTPRequestMessage.bearerToken`, which lower-cases the scheme. A spec-legal
         /// `authorization: bearer <token>` was therefore accepted on `GET /v1/files` and refused
-        /// on `PUT /v1/files/<id>` (TBX-5308, S-F26). One auth check written twice is one that
+        /// on `PUT /v1/files/<id>`. One auth check written twice is one that
         /// will disagree with itself; this is the same rule in the same shape.
         public var bearerToken: String? {
             guard let auth = header("authorization") else { return nil }
@@ -63,7 +63,7 @@ public final class StreamingUpload: @unchecked Sendable {
     /// `Content-Length` ever reached, and no cap ever tested.
     public static let maximumHeaderBytes = 32 * 1024
 
-    /// Everything in flight, together (TBX-5308, S-F13).
+    /// Everything in flight, together.
     ///
     /// The per-file cap is per *connection*, so it bounds one upload and nothing else: enough
     /// simultaneous uploads, or enough abandoned ones, fill the disk a file at a time while every
@@ -147,7 +147,7 @@ public final class StreamingUpload: @unchecked Sendable {
     /// flight belongs to a connection this process is holding, so at start-up there are none, and
     /// anything sitting in here is litter from a kill or a container stop mid-upload. Nothing else
     /// could remove it — `FileStore.prune` cannot see these, because `list()` filters on `.json`
-    /// in the parent directory (TBX-5308, S-F13).
+    /// in the parent directory.
     @discardableResult
     public static func sweepStaging(directory: URL) -> Int {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
@@ -296,7 +296,7 @@ public final class StreamingUpload: @unchecked Sendable {
             guard let colon = line.firstIndex(of: ":") else { continue }
             // `.whitespacesAndNewlines`, not `.whitespaces`. The latter is space and tab only, so
             // a bare LF at either end of a value survived it and was echoed back into a response
-            // head as a second line (TBX-5308, S-F26). Trimming is not the guarantee — a control
+            // head as a second line. Trimming is not the guarantee — a control
             // character in the *middle* of a value still gets through, and `safeHeaderValue` on
             // the way out is what closes that — but a value that ends in a newline has no business
             // being stored either.
@@ -304,7 +304,7 @@ public final class StreamingUpload: @unchecked Sendable {
             let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespacesAndNewlines)
             // Two lengths, or any transfer coding, leave the body's framing ambiguous: refuse them
             // as HTTPRequestMessage.parse does, rather than letting the last length win
-            // (RFC 9112 6.3; TBX-1000000494 review).
+            // (RFC 9112 6.3 review).
             if name == "transfer-encoding" || (name == "content-length" && headers[name] != nil) { return nil }
             headers[name] = value
         }

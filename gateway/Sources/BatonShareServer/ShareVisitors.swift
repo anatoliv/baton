@@ -51,13 +51,17 @@ public final class DailySalt: @unchecked Sendable {
 
 /// Who is asking, as far as the service is allowed to know.
 public struct ShareRequester: Sendable {
-    /// The client address, from the proxy chain. Used for hashing only, never stored.
+    /// The client address: `X-Real-IP` and nothing else. baton_web sets it from NPM's X-Real-IP,
+    /// believed only from proxy_net, and removes CF-Connecting-IP and X-Forwarded-For before the
+    /// request gets here (deploy/nginx/). Either of those arriving anyway came
+    /// from something that is not baton_web, so neither can name the client. Used for hashing
+    /// only, never stored.
     public let address: String
     /// The network a per-network limit counts: an IPv4 address as it is, an IPv6 address masked
     /// to its /64 and written canonically (an IPv4-mapped one counts as its IPv4 address), and
     /// anything unparsable as itself. Cloudflare passes the full IPv6 address, and an ordinary
     /// home or server /64 is 2^64 of them, so per address the create, new-sharer, App Attest and
-    /// contact-grant limits rotated for free (TBX-1000000496 E-9, infra review A2). Hashed like
+    /// contact-grant limits rotated for free. Hashed like
     /// the address before any use; never stored.
     public var network: String { Self.network(of: address) }
 
@@ -84,9 +88,7 @@ public struct ShareRequester: Sendable {
     public let viaProxy: Bool
 
     public init(headers: [String: String]) {
-        let forwarded = headers["x-forwarded-for"]?.split(separator: ",").first
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-        address = headers["cf-connecting-ip"] ?? headers["x-real-ip"] ?? forwarded ?? "unknown"
+        address = headers["x-real-ip"] ?? "unknown"
         userAgent = headers["user-agent"] ?? ""
         viaProxy = headers["cf-connecting-ip"] != nil || headers["x-real-ip"] != nil
             || headers["x-forwarded-for"] != nil

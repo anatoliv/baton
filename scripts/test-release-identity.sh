@@ -598,7 +598,7 @@ macrel_pin "$R" "$R/app/project.yml" >/dev/null
 expect green "nothing moves: an ordinary run passes the checkpoint" -- \
   macrel_assert "before packaging"
 
-# ----------------------------------- the TBX-5058 shape, on the Mac release path
+# ----------------------------------- the shape, on the Mac release path
 # Pin on the release branch, then `git checkout main` mid-run. Version, build and
 # HEAD all move. On iPhone this shipped a second, different 1.0.13; on the Mac it
 # would publish a DMG advertised as one release and built from another.

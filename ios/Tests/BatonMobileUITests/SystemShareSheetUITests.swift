@@ -1,6 +1,6 @@
 import XCTest
 
-/// "Baton" in the real system share sheet (TBX-10846, walked for TBX-10975): a web page shared
+/// "Baton" in the real system share sheet: a web page shared
 /// from Safari and a PDF shared from the Files app each open Baton's import screen exactly once.
 ///
 /// `ShareInboxUITests` covers the handoff from the App Group inbox onwards without the sheet. This

@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// : DNS-rebinding defense (Host/Origin) and header-only auth (no `?token=`).
+/// DNS-rebinding defense (Host/Origin) and header-only auth (no `?token=`).
 @MainActor
 final class MCPSecurityTests: XCTestCase {
     func testLoopbackHostAccepted() {

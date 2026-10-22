@@ -290,7 +290,7 @@ final class HelpGuideTests: XCTestCase {
     }
 
     /// Both apps' Settings link to the page that explains the music server and the Baton server
-    ///. A renamed heading would leave those links opening nothing, and it has to be
+    /// A renamed heading would leave those links opening nothing, and it has to be
     /// written for both apps, since each of them has both servers.
     func testTheTwoServersTopicShipsForBothApps() throws {
         let topic = try XCTUnwrap(shippedTopics().first { $0.slug == HelpGuide.twoServersTopic },

@@ -1,6 +1,6 @@
 import Foundation
 
-// "Previously…" as both apps offer it (M8.4 on the Mac, TBX-10963 on the iPhone). `Recap` holds
+// "Previously…" as both apps offer it (M8.4 on the Mac on the iPhone). `Recap` holds
 // the prompt and the cleaning; this is the rest of what the two apps must agree on: the words a
 // recap is made from when the app has no prepared book, where the listener is, when a recap is
 // offered, the one router call that writes it, and the voice it is said in. Each app keeps only

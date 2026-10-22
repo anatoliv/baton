@@ -22,7 +22,7 @@ enum WidgetBridge {
         /// along and the widget rendered a music-note glyph next to it. The bytes go into
         /// the App Group container instead, where the widget can read them straight off
         /// disk. The URL is a signed Subsonic link whose query carries the account's user
-        /// name and token, so it no longer crosses the boundary (TBX-1000000480 B-18).
+        /// name and token, so it no longer crosses the boundary.
         var artworkURL: URL?
         /// Filename inside the App Group container, written by `storeArtwork`.
         var artworkFile: String?
@@ -45,7 +45,7 @@ enum WidgetBridge {
     /// widget falls back to its glyph.
     ///
     /// Returns the bytes rather than writing them, so the write can wait until it is known
-    /// that no newer publish has happened since (TBX-1000000480 B-2).
+    /// that no newer publish has happened since.
     private static func downloadArtwork(_ url: URL?) async -> Data? {
         guard let url, containerURL != nil else { return nil }
         do {
@@ -91,7 +91,7 @@ enum WidgetBridge {
     }
 
     /// Bumped by every publish, so a cover that lands after a newer publish is dropped rather
-    /// than writing its older track and play state back over it (TBX-1000000480 B-2).
+    /// than writing its older track and play state back over it.
     @MainActor private static var publishGeneration = 0
 
     @MainActor
@@ -208,7 +208,7 @@ enum WidgetBridge {
         guard let song else {
             // Every card the system says is running, not only the one this launch holds: after a
             // relaunch the handle is nil while an earlier launch's card is still on the Lock
-            // Screen, and nothing else would ever end it (TBX-1000000505 B-17).
+            // Screen, and nothing else would ever end it.
             let ids = activityIDsToEnd(held: activity?.id,
                                        running: Activity<NowPlayingActivityAttributes>.activities.map(\.id))
             activity = nil

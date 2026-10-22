@@ -51,7 +51,7 @@ public enum GatewayAddress {
         return components.url ?? url
     }
 
-    /// Whether the gateway's bearer token may be sent to `url` (TBX-1000000505 B-9).
+    /// Whether the gateway's bearer token may be sent to `url`.
     ///
     /// HTTPS always. Plain HTTP to a host on the home network (`isPrivate`, the caller's rule,
     /// `RemoteNaturalLanguage.isPrivate` in the apps, so there is still one copy of it) or to a

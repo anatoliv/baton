@@ -10,7 +10,7 @@ import FoundationNetworking
 
 /// The kit's book client (`PreparedBookShare` and the `ShareClient` book routes) against the real
 /// `ShareService` with books on, through an in-process HTTP bridge, as the apps will use it
-/// (specs/book-sharing.md Phase 2, TBX-1000000132). The transport follows ShareMixtapeClientTests.
+/// (specs/book-sharing.md Phase 2). The transport follows ShareMixtapeClientTests.
 final class BookHTTPBridge: @unchecked Sendable {
     let service: ShareService
     let root: URL
@@ -37,6 +37,15 @@ final class BookHTTPBridge: @unchecked Sendable {
                 if count == 0 { break }; body.append(contentsOf: buffer.prefix(count))
             }
         }
+        #if canImport(FoundationNetworking)
+        // corelibs URLSession hands a custom URLProtocol an upload-from-file request with
+        // neither httpBody nor httpBodyStream, so on Linux the bridge reads the blob the kit
+        // streams from: its staged `<blob>.sealed` under this test's root. The kit's client
+        // runs only on Apple platforms, where the request carries the stream.
+        if method == "PUT", body.isEmpty, let blob = path.split(separator: "/").last {
+            body = try stagedBlob(String(blob))
+        }
+        #endif
         if method == "PUT" {
             let file = root.appendingPathComponent("bridge-upload-" + UUID().uuidString)
             try body.write(to: file)
@@ -44,6 +53,16 @@ final class BookHTTPBridge: @unchecked Sendable {
         }
         return service.handle(.init(method: method, path: path, query: [:], headers: headers, body: body))
     }
+    #if canImport(FoundationNetworking)
+    private func stagedBlob(_ id: String) throws -> Data {
+        let staged = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.hasPrefix("staged-") }
+            .map { $0.appendingPathComponent(id + ".sealed") }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard staged.count == 1 else { throw URLError(.fileDoesNotExist) }
+        return try Data(contentsOf: staged[0])
+    }
+    #endif
 }
 
 final class BookBridgeProtocol: URLProtocol, @unchecked Sendable {

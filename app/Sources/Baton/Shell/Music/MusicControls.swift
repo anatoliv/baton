@@ -244,7 +244,7 @@ struct SleepTimerMenu: View {
 }
 
 /// Speed for spoken items: podcasts and book chapters share one speed, 0.75×–2×, pitch kept
-///. Shown only while something spoken plays — music is never sped up, so offering
+/// Shown only while something spoken plays — music is never sped up, so offering
 /// the control on a song would be a control that does nothing.
 struct SpokenRateMenu: View {
     @Environment(MusicModel.self) private var model

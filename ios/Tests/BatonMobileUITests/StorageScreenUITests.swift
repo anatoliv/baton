@@ -1,6 +1,6 @@
 import XCTest
 
-/// The phone's book storage (TBX-10850, M6.3 and M6.4) walked on screen: a book made on a home
+/// The phone's book storage walked on screen: a book made on a home
 /// server comes down into Books, Settings > Storage shows it with its size beside the home
 /// server's own listing and the cleanup rules, and Remove Download moves it to Recently removed
 /// while the book keeps its row.
@@ -52,7 +52,7 @@ final class StorageScreenUITests: XCTestCase {
         make.tap()
         app.tap()
 
-        // Books collects every chapter (TBX-11018: books have their own section).
+        // Books collects every chapter.
         BooksScreen.open(app)
         let complete = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH '3 chapters'")).firstMatch
         XCTAssertTrue(complete.waitForExistence(timeout: 60), "the book's chapters did not all come down")

@@ -6,7 +6,7 @@ import BatonSubsonicModels
 /// Next onto the last item, then that item ends: playback stops. It must not play the last item
 /// a second time.
 ///
-/// Found on the iPhone by the TBX-10974 walk, with a three-chapter book: Next onto chapter 3,
+/// Found on the iPhone by the walk, with a three-chapter book: Next onto chapter 3,
 /// seek to 0:49, and at the end chapter 3 started again. The log showed `gapless preloaded next
 /// → queue index 2` while chapter 2 played, then `gapless advance → queue index 2 (no reload)`
 /// at the end: the look-ahead made for chapter 3 was still queued behind chapter 2 after Next

@@ -2,7 +2,7 @@ import BatonDocuments
 import Foundation
 
 /// The `import_document` MCP tool: an agent hands Baton a file, and Baton makes it a narrated
-/// book in Books (document clippings, M3.6; Books since TBX-11018).
+/// book in Books (document clippings, M3.6; Books since an internal task).
 ///
 /// The counterpart of `read_aloud` for things too long to hear in one sitting. `read_aloud`
 /// takes text the agent already extracted; this takes the file itself, because Baton now

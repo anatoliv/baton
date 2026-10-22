@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pronunciations for a book made on the home server (TBX-10964) against a throwaway gateway, on
+# Pronunciations for a book made on the home server against a throwaway gateway, on
 # a probe instance, never the owner's Baton and never the real home server:
 #
 #   scripts/probe-pronunciations-home-server.sh <Baton.app> <evidence-dir>
@@ -16,7 +16,7 @@
 #      job is deleted there, Kokoro is sent "[Kuno](/kˈuːnO/)" and nothing from chapter 1,
 #      the row says chapter 2 is being made, and only chapter 2 comes down again
 #
-# Two switches, for a pre-ship check on the real voice server (TBX-10976):
+# Two switches, for a pre-ship check on the real voice server:
 #
 #   KOKORO_UPSTREAM=http://<host>:8880   the local Kokoro becomes a pass-through to that real
 #                                        Kokoro: the texts are logged the same way, the audio is the

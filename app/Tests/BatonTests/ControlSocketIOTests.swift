@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// : a control-socket client that sends a request then closes before reading
+/// A control-socket client that sends a request then closes before reading
 /// the reply must not crash the app (unhandled SIGPIPE on `write`). Exercises the
 /// SIGPIPE-safe write helper directly over a socketpair.
 final class ControlSocketIOTests: XCTestCase {
@@ -39,7 +39,7 @@ final class ControlSocketIOTests: XCTestCase {
         XCTAssertEqual(got, want, "full payload should round-trip")
     }
 
-    // MARK: - A second instance and the socket path (TBX-1000000480 A-1)
+    // MARK: - A second instance and the socket path
 
     /// A short directory: `sun_path` holds about 104 bytes, and the test host's temp dir eats
     /// half of that.

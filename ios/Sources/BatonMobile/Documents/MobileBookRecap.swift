@@ -4,7 +4,7 @@ import BatonSubsonicKit
 import Foundation
 import Observation
 
-/// "Previously…" on the iPhone (TBX-10963, the phone half of M8.4): Play on a book last heard
+/// "Previously…" on the iPhone: Play on a book last heard
 /// more than a day ago offers a short spoken recap of what has been heard, then the book plays.
 ///
 /// What the Mac and the phone must agree on is `Recap` in BatonDocuments: when it is offered,
@@ -15,7 +15,7 @@ import Observation
 /// **The models.** The phone has three routes to a model. The music friend's own model
 /// (Settings, Music friend, Model provider: the same settings "Summarize this episode" uses) is
 /// called directly; the home server's model is reached through its book route
-/// (`POST /v1/books/complete`, TBX-10966), which answers only when that model is on the home
+/// (`POST /v1/books/complete`), which answers only when that model is on the home
 /// network; Apple's on-device model answers on an iPhone with Apple Intelligence. All go through
 /// `ModelRouter`, as on the Mac: a model on the person's own network, the home server or the phone
 /// is used as it is, and a cloud model only when the person allowed it chapters
@@ -116,7 +116,7 @@ enum MobileRecap {
         let token = config.gatewayToken.trimmingCharacters(in: .whitespaces)
         // The executor below hands the gateway token to this source, so it takes the same guard
         // as every other gateway client on the phone: never plain HTTP to a public address
-        // (TBX-1000000505 B-9).
+        //
         let homeServer = MobileModel.bearerGateway(address: gateway, token: token) != nil ? gateway : nil
         let sources = sources(model: config.model, baseURL: base, provider: config.provider,
                               hasKey: !key.trimmingCharacters(in: .whitespaces).isEmpty, homeServer: homeServer,

@@ -367,7 +367,7 @@ struct MusicArtistDetail: View {
     /// `AsyncImage`, which re-fetches, flashing to its empty placeholder, whenever the banner
     /// view is recreated. Fetching the bytes once here and holding the `Image` makes the hero
     /// pop in and stay put. The original reason was sharper still: `coverArtURL` minted a
-    /// fresh Subsonic salt per call, so the URL itself differed each render. TBX-5359 made the
+    /// fresh Subsonic salt per call, so the URL itself differed each render. An internal task made the
     /// salt stable per server, so that half is fixed and the recreation half is not.
     @State private var heroImage: Image?
 
@@ -727,7 +727,7 @@ struct MusicPlaylistDetail: View {
     private var songs: [NavidromeSong] { orderedSongs }
     private var name: String { loaded?.name ?? playlist.name }
     /// Reorder is only meaningful on the full, unfiltered list. Size is no longer a limit:
-    /// persistence batches the overwrite (`setPlaylistSongsChunked`, ) so arbitrarily large
+    /// persistence batches the overwrite (`setPlaylistSongsChunked`) so arbitrarily large
     /// playlists reorder without overflowing the request URL.
     private var canReorder: Bool {
         filter.trimmingCharacters(in: .whitespaces).isEmpty

@@ -84,7 +84,7 @@ final class ShareTransportTests: XCTestCase {
         }
     }
 
-    /// One sharer's own pending share must not let it hold the staging ceiling (TBX-1000000496 D-15
+    /// One sharer's own pending share must not let it hold the staging ceiling (D-15
     /// review). Ten 25 MiB uploads to that one share, each sending its head and then nothing, used
     /// to reserve 250 of the 256 MiB, so another sharer's 24 MB song was turned away with 503.
     func testSlowUploadsToOneOwnShareCannotHoldTheStagingCeiling() throws {
@@ -234,7 +234,7 @@ final class ShareTransportTests: XCTestCase {
                                                     isPrivate: false, expiresInSeconds: 604_800, playCap: 100, client: info))
     }
 
-    /// Wired as baton-share's main.swift wires it (TBX-1000000496 D-15).
+    /// Wired as baton-share's main.swift wires it.
     static func transport(for service: ShareService) -> POSIXTransport {
         POSIXTransport(stagingDirectory: service.stagingDirectory, maximumBodyBytes: ShareLimits.standard.maxAudioBytes,
                        streamsBody: ShareService.streamsBody,

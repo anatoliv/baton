@@ -6,7 +6,7 @@ import XCTest
 /// Book recaps and the dialogue cast reach the home server through `MobileRecap.liveRouting`,
 /// whose executor hands the gateway token to the `.homeServer` source. That path skipped the
 /// bearer guard every other gateway client on the phone takes, so a gateway set to plain HTTP on
-/// a public address got the household token in the clear (TBX-1000000505 B-9, review).
+/// a public address got the household token in the clear.
 @MainActor
 final class RecapGatewayBearerTests: XCTestCase {
     private var suiteName: String!

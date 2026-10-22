@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import BatonPlaybackKit
 import BatonShareKit
 import BatonSubsonicKit
 
@@ -446,12 +447,48 @@ enum BatonMCPToolCatalog {
 
     // MARK: - Dispatch
 
+    /// Every tool call, with song ids that would name a file or a feed address made opaque on the
+    /// way out and mapped back on the way in (`MCPSongIDs`).
     static func run(
         name: String,
         arguments: [String: Any],
         music: MusicModel,
         focus: BatonAudioFocusRegistry,
         sessionID: String? = nil
+    ) async -> (text: String, isError: Bool) {
+        let ids = MCPSongIDs.shared
+        let real: [String: Any], resolved: [String: String]
+        do {
+            (real, resolved) = try ids.incoming(arguments) { songIDCandidates(music) }
+        } catch let expired as MCPSongIDs.Expired {
+            return (expired.message, true)
+        } catch {
+            return (error.localizedDescription, true)
+        }
+        let (text, isError) = await runTool(name: name, arguments: real, music: music, focus: focus, sessionID: sessionID)
+        return (ids.outgoing(text, resolved: resolved), isError)
+    }
+
+    /// Every song id at hand, for finding one the id map has dropped: the queue, history,
+    /// downloads, clippings and followed podcasts' episodes. Read only when an id is not in the map.
+    static func songIDCandidates(_ music: MusicModel) -> [String] {
+        var ids = music.music.queue.map(\.id)
+        if let playing = music.music.nowPlaying { ids.append(playing.id) }
+        ids += music.musicHistory.listenLog(limit: music.musicHistory.lifetimeCount).map(\.song.id)
+        ids += MusicDownloadStore.shared.downloadedItems().map(\.id)
+        ids += music.clippings.items.map(\.songID)
+        for channel in music.podcastSubscriptions.channels {
+            ids += channel.episodes.map { BatonMCPAppTools.episodeSongID(channel, $0) }
+        }
+        return ids
+    }
+
+    private static func runTool(
+        name: String,
+        arguments: [String: Any],
+        music: MusicModel,
+        focus: BatonAudioFocusRegistry,
+        sessionID: String?
     ) async -> (text: String, isError: Bool) {
         do {
             let text: String

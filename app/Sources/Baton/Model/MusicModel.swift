@@ -212,7 +212,7 @@ final class MusicModel {
         // listing and a sidecar per clipping.
         if !environment.isTesting { clippings.loadIfNeeded() }
         // Resume a book left rendering when Baton quit, and from then on start and stop with
-        // the Documents switch (M1–M3, TBX-10801).
+        // the Documents switch (M1–M3).
         if !environment.isTesting {
             if documentsSwitch.isOn { followDocumentsSwitch() }
             documentsSwitch.onChange { [weak self] on in

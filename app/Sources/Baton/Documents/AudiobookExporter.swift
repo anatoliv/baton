@@ -130,7 +130,7 @@ enum AudiobookExporter {
     /// priming and end padding included, since stream copy keeps them all. That is about 0.09 s
     /// longer per chapter than the rendered length on the Mac's encoder and 0.04 s on ffmpeg's
     /// (measured 2026-10-15). The concat list states these spans and `AudiobookExport.placed`
-    /// puts the marks on them, as the gateway does (TBX-10845, TBX-10856).
+    /// puts the marks on them, as the gateway does.
     static func muxedSpans(_ chapters: [URL]) async throws -> [Double] {
         var spans: [Double] = []
         for url in chapters { spans.append(try await packetDuration(url)) }

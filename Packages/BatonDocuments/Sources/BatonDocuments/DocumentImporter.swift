@@ -126,7 +126,7 @@ public enum DocumentImporter {
     /// importing the same article twice should find the existing book.
     public static func importURL(_ url: URL, fetch: Fetch = pageFetch) async throws -> ImportedDocument {
         // Read without its fragment: the server never sees one, and the address becomes the
-        // document's file name, where a fragment that is a key would be kept (TBX-1000000505 B-6).
+        // document's file name, where a fragment that is a key would be kept.
         var parts = URLComponents(url: url, resolvingAgainstBaseURL: false)
         parts?.fragment = nil
         let url = parts?.url ?? url

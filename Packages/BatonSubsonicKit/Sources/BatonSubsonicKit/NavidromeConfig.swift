@@ -301,7 +301,7 @@ public enum NavidromeConfig {
     /// and the Keychain will not answer. `credentials()` returns nil for both, and telling
     /// someone with a configured server to go and configure one is a dead end: the
     /// `storeReadFailure()` banner is only wired into Settings and Onboarding, which nobody
-    /// visits when the library screen says they never set anything up (TBX-5268's other half).
+    /// visits when the library screen says they never set anything up.
     public static func makeClient(session: URLSession = sharedSession) throws -> NavidromeClient {
         if let credentials = credentials() {
             return NavidromeClient(credentials: credentials, session: session)

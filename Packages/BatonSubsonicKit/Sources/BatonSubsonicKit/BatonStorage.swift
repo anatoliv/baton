@@ -8,8 +8,8 @@ private let storageLog = Logger(subsystem: "io.tonebox.baton", category: "BatonS
 /// domain and its stores *are* the owner's real `~/Library/Application Support/Baton`. That made
 /// the Mac half of a sync walk impossible to run: launching a probe build would write probe keys
 /// into the owner's preferences and publish their real friend memory to whatever gateway the probe
-/// was pointed at. Three cards ended with an unrun Mac half for that reason (TBX-3846, TBX-5123,
-/// TBX-5125) — not because anyone was lazy, but because the safe version of the action did not
+/// was pointed at. Three cards ended with an unrun Mac half for that reason (
+/// An internal task) — not because anyone was lazy, but because the safe version of the action did not
 /// exist. This is that version.
 ///
 /// ## One flag, because half a redirect is worse than none
@@ -86,7 +86,7 @@ public enum BatonStorage {
     ///   real domain onto itself and quietly defeat the whole point;
     /// - `-baton.supportDirectory` with no `-baton.defaultsSuite`, the half-redirect.
     ///
-    /// `environment` is a fallback, checked only when the argument form is absent. TBX-5336:
+    /// `environment` is a fallback, checked only when the argument form is absent. An internal task:
     /// `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch in
     /// four, so `StorageDomainUITests` passes this redirect through `app.launchEnvironment`
     /// instead — `posix_spawn`'s envp, not argv reconstruction, and did not reproduce the drop
@@ -197,7 +197,7 @@ public enum BatonStorage {
     /// The UI-test overrides that are safe to write straight into `.standard`, once, the
     /// first time anything touches this type.
     ///
-    /// TBX-5336: `XCUIApplication.launchArguments` drops a whole `-key value` group about
+    /// `XCUIApplication.launchArguments` drops a whole `-key value` group about
     /// one launch in four, so overrides that used to ride `-key value` into `UserDefaults`'s
     /// own NSArgumentDomain now come through `app.launchEnvironment` instead — a plain
     /// string in the process environment, which `posix_spawn` delivers through envp rather

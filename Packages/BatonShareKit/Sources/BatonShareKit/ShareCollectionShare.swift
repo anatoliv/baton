@@ -1,7 +1,7 @@
 import Foundation
 
 /// An album or playlist sealed to disk one track at a time (specs/collection-sharing.md, "Sealing",
-/// TBX-1000000485).
+/// An internal task).
 ///
 /// A book's chapters are files already on the device, so `make(chapters:)` reads them as they are.
 /// A collection's tracks are not: each is fetched from the music server (or converted on the

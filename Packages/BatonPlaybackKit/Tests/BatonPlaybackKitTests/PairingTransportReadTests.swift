@@ -19,7 +19,7 @@ final class PairingTransportReadTests: XCTestCase {
     /// A loopback server that writes `payload` and closes, exactly as the pairing host does —
     /// built on plain BSD sockets rather than `NWListener`.
     ///
-    /// **Un-parked 2026-09-09.** The three tests below were skipped since TBX-3846
+    /// **Un-parked 2026-09-09.** The three tests below were skipped since an internal task
     /// because the client's `NWConnection` never reached `.ready` against an in-process
     /// `NWListener` — confirmed again here: with the old `NWListener`-backed `serve()`, the
     /// client hung past 90 seconds and was killed by hand (never reached `.ready`, `.failed`,

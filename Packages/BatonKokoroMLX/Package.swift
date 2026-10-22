@@ -1,11 +1,11 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-// Kokoro on this Mac (TBX-10854, board M7.5): the built-in "This Mac" voice engine for
+// Kokoro on this Mac: the built-in "This Mac" voice engine for
 // document clippings. Mac only: nothing in ios/ or Shared/ may depend on this package, so the
 // iPhone app links no MLX (see VENDORED.md).
 //
-// The pins are exact on purpose. TBX-10849 measured kokoro-ios 1.0.10 on mlx-swift 0.29.1 at
+// The pins are exact on purpose. An internal task measured kokoro-ios 1.0.10 on mlx-swift 0.29.1 at
 // WER 0.4%, the same as the LAN server; the next pair (1.0.11 on 0.30.2) drops about a quarter
 // of the words. Any MLX upgrade re-runs that check (spikes/kokoro-mlx/wer.py) before it lands.
 let package = Package(

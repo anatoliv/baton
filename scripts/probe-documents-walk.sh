@@ -27,9 +27,9 @@
 # also presses each narrator's Hear button there (M4.4), then stops without making the book.
 # CAST=1 turns on "Voice the dialogue" (G4), waits for a model to write the cast list (a model
 # must be set up: Ollama on this Mac will do), screenshots the sheet and the cast editor, presses
-# Use This Cast and waits for the lines without a tag to be placed (TBX-10894), and stops
+# Use This Cast and waits for the lines without a tag to be placed, and stops
 # without making the book. CAST_MAKE=1 with CAST=1 then presses Make Audiobook, waits for
-# chapter 1 in Clippings and writes the voices per speaker from the book's job (TBX-10886).
+# chapter 1 in Clippings and writes the voices per speaker from the book's job.
 #
 # The walk brings the probe to the front for each screenshot, so anything typed in another app at
 # that moment lands in the probe's window. Run it when nobody is typing.
@@ -142,7 +142,7 @@ requests() { cat "$COUNT_FILE" 2>/dev/null || echo 0; }
 # ---- the probe ----------------------------------------------------------------------------------
 launch() {   # $1 = file to import at launch, or empty
   # DEBUG hooks (BatonApp): open Clippings, and the import sheet for a file. Environment, never
-  # launch arguments (TBX-5336). Preference sync stays off: the shared document carries the
+  # launch arguments. Preference sync stays off: the shared document carries the
   # gateway address, so a syncing probe swaps its relay address for the owner's real one
   # (seen 2026-10-14) and could push its throwaway settings the other way.
   if [ -n "${1:-}" ]; then
@@ -368,7 +368,7 @@ if [ "${CAST:-0}" = 1 ]; then
   sleep 1
   window_shots G-cast-editor
   "$AX_BIN" texts "$PID" | grep -E "lines found|^\[button\] Hear" | sed 's/^/   /'
-  # TBX-10894: Use This Cast, then a model places the lines the rules leave; the sheet says what
+  # Use This Cast, then a model places the lines the rules leave; the sheet says what
   # happened in one line ("... have a speaker", or why the narrator reads them).
   "$AX_BIN" press "$PID" "Use This Cast" >/dev/null; verdict "Use This Cast pressed" $?
   wait_for "${PLACE_WAIT:-600}" '"$AX_BIN" texts "$PID" | grep -qE "lines have a speaker|the narrator reads those"'
@@ -379,7 +379,7 @@ if [ "${CAST:-0}" = 1 ]; then
     [ "$fail" = 0 ] && echo "PASS (cast sheet)" || echo "FAIL"
     exit "$fail"
   fi
-  # CAST_MAKE=1 (TBX-10886): go on and make the book on this Mac with the checked cast, wait for
+  # CAST_MAKE=1: go on and make the book on this Mac with the checked cast, wait for
   # chapter 1 in Clippings, and read who read what from the book's own job record.
   say "M. Make Audiobook with the checked cast"
   "$AX_BIN" press "$PID" "Make Audiobook" >/dev/null; verdict "Make Audiobook pressed" $?

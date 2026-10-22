@@ -10,7 +10,7 @@ import Observation
 // has to be able to play anything (not only what is already playing), and when it rings the
 // person has to land in the player. These are the rules of the sheet and the picker, kept here
 // so both apps share them and they are tested without a screen. The scheduling, AlarmKit,
-// notifications and storage underneath are TBX-11171's, unchanged.
+// notifications and storage underneath are an internal task, unchanged.
 
 /// What the quick sheet is doing: a timer or an alarm, and the item it plays.
 @MainActor
@@ -253,7 +253,7 @@ public struct AlarmPillState: Equatable, Sendable {
 
     /// Every pill to show: the timer, then the soonest alarm due within a day. A timer and an
     /// alarm are independent, so with both set both show, one above the other, each with its own
-    /// ✕ (owner, 2026-10-21, TBX-1000000410: "I should be able to setup timer and alarm at the
+    /// ✕ (owner, 2026-10-21, "I should be able to setup timer and alarm at the
     /// same time"). Until then the timer's pill hid the alarm's.
     @MainActor
     public static func all(_ store: AlarmStore, now: Date = Date(),
@@ -421,7 +421,7 @@ public final class AlarmPickerModel {
     @ObservationIgnored private var previewTask: Task<Void, Never>?
     @ObservationIgnored private var browsed: [Section: [AlarmPickItem]] = [:]
     /// Bumped by every select, preview and close, so a fetch that finishes after the person has
-    /// moved on (left the picker, chose another row) does nothing (TBX-1000000112 review).
+    /// moved on (left the picker, chose another row) does nothing.
     @ObservationIgnored private var generation = 0
 
     public init(source: AlarmPickerSource, preview: AlarmPreviewing?, previewLength: TimeInterval = AlarmPickerModel.previewLength) {
@@ -556,7 +556,7 @@ public final class LibraryAlarmPickerSource: AlarmPickerSource {
 
     public func search(_ query: String) async -> [AlarmPickItem] {
         // Playlists and stations are matched by name from their lists, so load them first: a
-        // search for a station on a fresh launch found nothing (TBX-1000000112 review).
+        // search for a station on a fresh launch found nothing.
         if !library.isDemo {
             if library.playlists.isEmpty { await library.loadPlaylists() }
             await radio.loadIfNeeded()

@@ -7,7 +7,7 @@ import Foundation
 // only the fields we use — not the full Subsonic schema — so the wire shape (the
 // `*Wire` decoders in the app's NavidromeModels.swift) can evolve without churn.
 //
-// This is the second leaf of the  module-boundary split (after BatonDSP): the
+// This is the second leaf of the module-boundary split (after BatonDSP): the
 // foundational model layer, extracted so it has no dependency on the app. Everything
 // here is `public` (call sites are unchanged — the app re-exports the module) and
 // explicitly `Sendable` (a `public` type gets no implicit Sendable conformance across

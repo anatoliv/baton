@@ -3,7 +3,7 @@ import XCTest
 import BatonSubsonicModels
 
 /// A schema snapshot of the MCP tool catalog, replacing the bare `names.count == N`
-/// assertion that / flagged as brittle.
+/// assertion that flagged as brittle.
 ///
 /// A count catches "someone added a tool". It misses everything that actually breaks an
 /// agent: a renamed parameter, a dropped `required` entry, a property that quietly changed
@@ -64,7 +64,7 @@ final class MCPSchemaSnapshotTests: XCTestCase {
         // A link a friend outside the LAN can play (docs/plan-song-sharing.md). Refuses until
         // the owner has shared once by hand.
         "music_share",
-        // The rest of the app (TBX-11175, specs/mcp-coverage.md), MCP only: the chat surface
+        // The rest of the app, MCP only: the chat surface
         // leaves them out. The book_* ones are listed with documents on (MCPAppToolsTests).
         "clippings_list", "clipping_play", "clipping_delete",
         "podcasts_list", "podcast_episodes", "podcast_play_episode", "podcast_subscribe", "podcast_unsubscribe",

@@ -22,7 +22,7 @@
 //   probe-ax selected <pid>            identifiers of the selected elements (the lit read-along sentence)
 //   probe-ax menuitems <pid> <text>    the context menu items of the element showing <text>, then Escape
 //   probe-ax menu <pid> <text> <item>  open the context menu of the element showing <text> and
-//                                      choose <item> from it (TBX-10960: a book row's Play, Read Along)
+//                                      choose <item> from it
 //
 // AppleScript's `entire contents` of a Settings window holding a long grouped Form ran for
 // minutes and then timed out with nothing, while the same walk through AXUIElement takes well
@@ -62,7 +62,7 @@ func showsText(_ element: AXUIElement, _ text: String) -> Bool {
     return false
 }
 
-/// Whether a synthetic click or key press may go ahead (TBX-11063, after another lane's clicks
+/// Whether a synthetic click or key press may go ahead (after another lane's clicks
 /// landed in the owner's app): the probe's own process must be the frontmost app, and a point,
 /// when given, must lie inside one of its on-screen windows. Prints why when it refuses.
 func safeToDrive(_ pid: pid_t, at point: CGPoint?) -> Bool {
@@ -88,7 +88,7 @@ func safeToDrive(_ pid: pid_t, at point: CGPoint?) -> Bool {
 }
 
 /// A real right-click at the centre of `element`, for a SwiftUI row whose context menu has no
-/// AXShowMenu action (TBX-11063: a book row in the Mac's list). The probe must be in front.
+/// AXShowMenu action. The probe must be in front.
 func rightClick(_ element: AXUIElement, pid: pid_t) -> Bool {
     guard let p = attribute(element, kAXPositionAttribute), let s = attribute(element, kAXSizeAttribute) else { return false }
     var origin = CGPoint.zero, size = CGSize.zero
@@ -120,7 +120,7 @@ case "texts":
         _ = walk(window) { element in
             let role = string(element, kAXRoleAttribute) ?? ""
             if role == kAXStaticTextRole, let value = string(element, kAXValueAttribute) { print(value) }
-            // A SwiftUI header (`.isHeader`) is a heading, not static text (TBX-11028: voice groups).
+            // A SwiftUI header (`.isHeader`) is a heading, not static text.
             if role == "AXHeading", let title = labels(element).first(where: { !$0.isEmpty }) { print("[heading] \(title)") }
             if role == kAXButtonRole, let title = string(element, kAXTitleAttribute) ?? string(element, kAXDescriptionAttribute) {
                 print("[button] \(title)")
@@ -134,7 +134,7 @@ case "press":
     var done = false
     for window in windows where !done {
         done = walk(window) { element in
-            // A segmented picker's segments are radio buttons (TBX-11028: Made on).
+            // A segmented picker's segments are radio buttons.
             let role = string(element, kAXRoleAttribute)
             guard role == kAXButtonRole || role == kAXRadioButtonRole, labels(element).contains(label) else { return false }
             return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
@@ -338,7 +338,7 @@ case "menu":
         }
     }
     // A row that is one button (its label read as one line: "<title>, <author>, …") offers its
-    // menu on the button itself (TBX-11064: a book row).
+    // menu on the button itself.
     for window in windows where target == nil {
         _ = walk(window) { element in
             guard string(element, kAXRoleAttribute) == kAXButtonRole,
@@ -379,7 +379,7 @@ case "menu":
     exit(pressed ? 0 : 1)
 case "frame":
     // The centre of the first static text or button showing <label>, in screen points, for a
-    // real double-click with cliclick (TBX-11063: a chapter row's double-click).
+    // real double-click with cliclick.
     guard args.count >= 4 else { exit(64) }
     var centre: CGPoint?
     for window in windows where centre == nil {
@@ -400,7 +400,7 @@ case "frame":
     print("\(Int(centre.x)),\(Int(centre.y))")
 case "title":
     // The title (or description) of the first button whose identifier is <identifier>, so a
-    // check reads one button and not another with the same words (TBX-11063: the book's Pause
+    // check reads one button and not another with the same words (the book's Pause
     // and the transport's Pause).
     guard args.count >= 4 else { exit(64) }
     var found: String?
@@ -463,7 +463,7 @@ case "guard":
     exit(safeToDrive(pid, at: point) ? 0 : 1)
 case "selected":
     // Identifiers of the elements marked selected, the lit read-along sentence among them
-    // (`readalong-sentence-N` carries `.isSelected`, TBX-10960), one per line.
+    // (`readalong-sentence-N` carries `.isSelected`), one per line.
     for window in windows {
         _ = walk(window) { element in
             if (attribute(element, kAXSelectedAttribute) as? Bool) == true, let id = string(element, kAXIdentifierAttribute) {

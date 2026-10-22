@@ -411,7 +411,7 @@ final class EngineLiveNavidromeTests: XCTestCase {
         XCTAssertEqual(harness.controller.currentTime, target, accuracy: 2.0)
         // Same rule as the in-spool half, for the same reason: decide on the node having begun
         // rendering the reloaded stream, not on a fixed window. A single 0.8 s render here
-        // reported silence on 2026-09-08 in isolation (TBX-5124's fifth sighting) while the
+        // reported silence on 2026-09-08 in isolation while the
         // reload was still fetching over the internet; the engine had not failed, it had not
         // finished. Budget rather than count, early exit, and a skip when the node never
         // starts, which is the environment refusing to measure rather than the code failing.
@@ -522,7 +522,7 @@ final class EngineLiveNavidromeTests: XCTestCase {
         ))
         // Starting at all is the part that is still unreliable on this path, and it is the
         // open bug rather than something this test can meaningfully gate: a drawn track that
-        // never schedules is TBX-2886 reproducing, not the ordinary case regressing. Report
+        // never schedules is an internal task reproducing, not the ordinary case regressing. Report
         // it and skip. Once playback *has* started, everything below is a hard assertion.
         let started = await harness.waitUntilOrTimeout(seconds: 30) {
             harness.pipeline.scheduledSeconds(on: harness.controller.activeDeckForTesting) > 2.0

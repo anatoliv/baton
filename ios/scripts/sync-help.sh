@@ -3,7 +3,7 @@
 # Put the canonical HELP.md / FAQ.md where the iPhone target expects to bundle them,
 # BEFORE `xcodegen generate` runs.
 #
-# WHY THIS EXISTS (TBX-3928, 2026-09-07). `ios/project.yml` already copies both files
+# WHY THIS EXISTS. `ios/project.yml` already copies both files
 # into `ios/Resources/` in a preBuildScript, and that keeps them fresh on every build.
 # What it cannot do is make them exist in time: xcodegen enumerates `Resources/` when it
 # GENERATES the project, so on a tree where those two files are not on disk yet the

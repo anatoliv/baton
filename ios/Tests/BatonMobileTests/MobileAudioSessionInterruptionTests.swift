@@ -8,7 +8,7 @@ import XCTest
 ///
 /// The system's `.shouldResume` says the interruption is over, not that the person wanted
 /// Baton playing. A track they had paused before the phone rang started on its own when
-/// the call ended (TBX-1000000480 B-3). Only playback the interruption itself paused may
+/// the call ended. Only playback the interruption itself paused may
 /// come back.
 @MainActor
 final class MobileAudioSessionInterruptionTests: XCTestCase {
@@ -65,7 +65,7 @@ final class MobileAudioSessionInterruptionTests: XCTestCase {
 
     /// Two interruptions began before either ended (Siri over a call): the second found the
     /// track already paused by the first and overwrote "it was playing" with false, so the end
-    /// left it paused (TBX-1000000505, B-3 edge).
+    /// left it paused.
     func testPlaybackResumesAfterTwoBeginningsAndOneEnd() async throws {
         let (controller, session) = try await playingRig()
 

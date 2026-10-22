@@ -1,5 +1,5 @@
 #!/bin/bash
-# Voice the dialogue in Change Voice… on the Mac (TBX-11141), on a probe instance, never the
+# Voice the dialogue in Change Voice… on the Mac, on a probe instance, never the
 # owner's Baton:
 #
 #   KOKORO_UPSTREAM=http://<kokoro>:8880 scripts/probe-dialogue-cast.sh <Baton.app> <evidence-dir>
@@ -15,7 +15,7 @@
 #      are placed, Make Again: the new job has the
 #      cast (each quote with its speaker), both chapters are replaced, and Kokoro was asked for
 #      the characters' voices
-#   E. Change Voice… to an expressive narrator (TBX-11142's `openai` engine), from a loopback
+#   E. Change Voice… to an expressive narrator, from a loopback
 #      fixture server that reads through the real Kokoro but answers 48 kHz stereo float, as
 #      another server may: the cast keeps its Kokoro voices, so one chapter mixes two engines
 #      and two audio formats. The fixture was asked for the narrator with a delivery
@@ -239,7 +239,7 @@ defaults write "$SUITE" baton.documents.localModelSources -data "$SOURCE"
 # HTML, so the book opens with an untitled chapter: the sentences before the first heading,
 # which begin with a line of Vashti's. With an expressive narrator and a Kokoro cast (part E)
 # that chapter opens in Kokoro's format and every other one in the narrator's, the case the
-# TBX-11141 review found broke the M4B export.
+# An internal task review found broke the M4B export.
 BOOK="$WORK/the-machine.html"
 cat > "$BOOK" <<'HTML'
 <!doctype html>

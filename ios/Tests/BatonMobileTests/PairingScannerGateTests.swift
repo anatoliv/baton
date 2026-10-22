@@ -1,7 +1,7 @@
 import XCTest
 @testable import BatonMobile
 
-/// The pairing scanner after a bad code (TBX-1000000505 B-4): it stopped reporting codes after
+/// The pairing scanner after a bad code: it stopped reporting codes after
 /// the first one, and its screen stopped accepting them after the first failure, so it sat dead
 /// with the camera on until Cancel.
 final class PairingScannerGateTests: XCTestCase {

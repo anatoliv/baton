@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Is this Mac ready to release Baton? One list, before anything starts. (TBX-11003, TBX-11024)
+# Is this Mac ready to release Baton? One list, before anything starts.
 #
 #   scripts/release-ready.sh            # from the release checkout
 #

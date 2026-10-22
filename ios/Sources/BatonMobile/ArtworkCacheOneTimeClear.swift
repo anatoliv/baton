@@ -1,6 +1,6 @@
 import Foundation
 
-/// Covers stored before a800db0b (TBX-1000000480 C3-2) kept the signed Subsonic URL, with its
+/// Covers stored before a800db0b kept the signed Subsonic URL, with its
 /// username and password-derived token, as the stored response's URL in the artwork cache's
 /// `Cache.db`. The fix stops new entries carrying it, but entries already on disk keep it until
 /// they are refetched or evicted. Clearing the artwork cache once removes them; covers are

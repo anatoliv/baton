@@ -377,7 +377,7 @@ struct BooksView: View {
             MobileBookHeard(model: model, book: book, part: .bar(maxWidth: nil))
             statusLines(book)
             // Side by side, one line each and the same size, while both fit; stacked, full width,
-            // when the text is too large for that or the screen too narrow (TBX-11063: "Read
+            // when the text is too large for that or the screen too narrow ("Read
             // Along" wrapped to two lines beside a one-line "Resume").
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) { mainButton(book); readAlongButton(book) }
@@ -389,7 +389,7 @@ struct BooksView: View {
     }
 
     /// Pause or Resume while this book is in the player, else Play or Resume from its place
-    ///, with the play/pause morph the player's own button has.
+    /// with the play/pause morph the player's own button has.
     private func mainButton(_ book: MobileBookShelf.Book) -> some View {
         let action = mainAction(book)
         return Button { performMain(book) } label: {
@@ -489,7 +489,7 @@ struct BooksView: View {
     }
 
     /// The sleep timer, here as in Clippings and the full player, while something plays
-    ///: a book is exactly what people fall asleep to.
+    /// a book is exactly what people fall asleep to.
     @ToolbarContentBuilder
     private var sleepTimerItem: some ToolbarContent {
         if model.music.nowPlaying != nil || model.music.sleepTimerArmed {

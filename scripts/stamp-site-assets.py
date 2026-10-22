@@ -12,10 +12,10 @@ import sys
 
 SITE = Path(os.environ.get("BATON_SITE_DIR") or Path(__file__).resolve().parents[1] / "website")
 # A root-relative link ("/styles.css") is stamped too: 404.html uses one so that a
-# missing nested path such as /a/b/c still loads the stylesheet (TBX-8130).
+# missing nested path such as /a/b/c still loads the stylesheet.
 LINK = re.compile(r'((?:href|src)="/?(?:styles\.css|main\.js))(?:\?v=[A-Za-z0-9_-]+)?(")')
 
-# The static site's Content-Security-Policy (TBX-1000000503 E-10), one per page as a <meta>,
+# The static site's Content-Security-Policy, one per page as a <meta>,
 # because its script-src names the SHA-256 of that page's own inline scripts (the theme
 # bootstrap before first paint, help.html's scrollspy). A changed inline script needs a new
 # hash, or the browser refuses to run it; this stamper writes it and --check refuses a stale

@@ -62,7 +62,7 @@ final class PronunciationLexiconTests: XCTestCase {
         XCTAssertTrue(PronunciationLexicon.parse("no JSON at all", candidates: candidates).isEmpty)
     }
 
-    /// TBX-10947: on the TBX-10886 walk (Pride and Prejudice, chapter 1) the US spell checker
+    /// On the walk (Pride and Prejudice, chapter 1) the US spell checker
     /// did not know the British "neighbourhood", so it was asked about beside "Netherfield",
     /// and Apple's on-device model gave both the same phonemes. The chapter then said
     /// "Netherfield" for "neighbourhood". The reply is the typed reply's JSON as the job's

@@ -367,7 +367,7 @@ final class URLImportTests: XCTestCase {
     }
 
     /// A fragment is never sent to the server, and the address becomes the document's file name,
-    /// where a fragment that is a Baton share link's key would be kept (TBX-1000000505 B-6).
+    /// where a fragment that is a Baton share link's key would be kept.
     func testAnAddressIsReadAndKeptWithoutItsFragment() async throws {
         let doc = try await DocumentImporter.importURL(URL(string: "https://example.org/2026/quiet-machines#section-2")!,
                                                        fetch: fetch { Data(HTMLImporterTests.newsPage.utf8) })

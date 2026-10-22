@@ -2,7 +2,7 @@ import XCTest
 import BatonSubsonicModels
 @testable import BatonPlaybackKit
 
-/// Pause and Stop save the place where listening halted, not the last 5 s mark (TBX-10974
+/// Pause and Stop save the place where listening halted, not the last 5 s mark (an internal task
 /// re-walk). The Mac stopped a book at 0:15 of chapter 2 and the phone resumed it at 0:10; the
 /// phone paused just as chapter 2 ended into chapter 3, and the Mac played chapter 2 again from
 /// the top, because the ledger still held the end of chapter 2.

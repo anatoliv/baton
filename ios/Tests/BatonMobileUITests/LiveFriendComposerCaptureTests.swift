@@ -51,7 +51,7 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
         continueAfterFailure = false
         try XCTSkipIf(agentKey.isEmpty || agentBaseURL.isEmpty, "live model provider not provided")
         app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
         if !hasLiveServer { app.launchEnvironment["baton.demoMode"] = "YES" }
@@ -179,7 +179,7 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
     /// treats return as a newline — so the message stayed in the composer with a second
     /// line under it, and the test called that a conversation.
     ///
-    /// **Both modifiers are gone.** TBX-5158 removed `.submitLabel(.send)` and the dead
+    /// **Both modifiers are gone.** an internal task removed `.submitLabel(.send)` and the dead
     /// `.onSubmit(sendDraft)` from the field for exactly that reason, and gave the
     /// composer's own button the identifier `FriendComposerSend`. Only one control on this
     /// screen is named Send today. Do not put either modifier back — `MusicFriendView.swift`
@@ -204,7 +204,7 @@ final class LiveFriendComposerCaptureTests: XCTestCase {
     }
 
     /// What the "Send" label actually matches, for a failure message that says something.
-    /// Since TBX-5158 the composer's own button should be the only candidate; before it, the
+    /// Since an internal task the composer's own button should be the only candidate; before it, the
     /// keyboard's return key was a second. So more than one match printed here is the tell
     /// that the field has grown a `.submitLabel` again.
     private func describeSendControls() -> String {

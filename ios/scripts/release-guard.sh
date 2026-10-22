@@ -3,7 +3,7 @@
 # Release identity guard — refuse to keep building if the working tree moves
 # underneath a running release.
 #
-# WHY THIS EXISTS (TBX-5058, 2026-09-07). The 1.0.14 version bump was committed to a
+# WHY THIS EXISTS. The 1.0.14 version bump was committed to a
 # branch, `./ios/scripts/testflight.sh` was launched from that checkout, and then
 # `git checkout main` was run in the SAME working tree while the build was still
 # going, to merge an unrelated PR. `main` still said MARKETING_VERSION 1.0.13. The
@@ -25,7 +25,7 @@
 #     cut from a detached HEAD or a tag, and two commits can carry the same version),
 #     which is why it is one signal of three rather than the check.
 #
-# WHAT TBX-5102 ADDED, and why the above was not already enough.
+# WHAT an internal task ADDED, and why the above was not already enough.
 #
 # Everything above compares the tree against itself. It proves the tree did not move
 # during the run; it proves nothing about the artifact once the artifact has left the
@@ -98,7 +98,7 @@ rg_head_name() {
 
 rg_porcelain() { git -C "$1" status --porcelain 2>/dev/null | LC_ALL=C sort; }
 
-# --- the identity rule (TBX-5102) ------------------------------------------
+# --- the identity rule ------------------------------------------
 
 # rg_is_valid_commit <string>
 # The ONLY accepted shape is exactly 40 lowercase ASCII hex characters.
@@ -222,7 +222,7 @@ release_pin() {
   # RG_COMMIT is the same string as RG_HEAD, under the name the rest of the release
   # uses for it. RG_HEAD is "the thing that must not move"; RG_COMMIT is "the identity
   # stamped into the app". They are one value with two jobs, and testflight.sh hands
-  # RG_COMMIT to xcodebuild as BATON_SOURCE_COMMIT. (TBX-5102)
+  # RG_COMMIT to xcodebuild as BATON_SOURCE_COMMIT.
   RG_COMMIT="$RG_HEAD"
   # Which paths the release is allowed to have dirtied by the time production runs.
   # Nothing, until the run explicitly says otherwise. See release_allow_release_edit.
@@ -329,7 +329,7 @@ release_assert() {
   return 1
 }
 
-# --- the production bar: is the stamped commit actually true? (TBX-5102) ----
+# --- the production bar: is the stamped commit actually true? ----
 
 # Which roots can change the bytes that get compiled into the .ipa, or the bytes of
 # the gate that vouches for it. Dirty here is FATAL on a production run, because the

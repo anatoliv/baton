@@ -81,7 +81,7 @@ final class AgentClient {
 
     /// Identifies this conversation to the gateway, so `music_similar_songs` seeds from
     /// *this* conversation's last search rather than whatever another one looked up
-    /// last (TBX-5325, TBX-5308 S-F26). Regenerated with the conversation itself
+    /// last. Regenerated with the conversation itself
     /// (`resetConversation`) — same boundary as `history`, so the two never disagree
     /// about where one conversation ends and the next begins. Never persisted: a
     /// process restart is a new conversation as far as the gateway's seed store cares.
@@ -145,7 +145,7 @@ final class AgentClient {
             return .failed("Nothing is configured yet.")
         }
         // The configuration this request tests. An edit made while it is in flight is a
-        // different configuration that nobody tried (TBX-1000000480 B-7).
+        // different configuration that nobody tried.
         let tested = config.fingerprint
         let outcome: RemoteNaturalLanguage.TestOutcome
         switch profile.dialect {
@@ -171,7 +171,7 @@ final class AgentClient {
     /// The connection test, in the vocabulary every other configurable service answers in.
     ///
     /// One mapping, two callers: the post-import checks and the Settings screens
-    ///. Copying it would let the two drift, and the interesting half is the bit
+    /// Copying it would let the two drift, and the interesting half is the bit
     /// that is easy to get backwards — see below.
     ///
     /// Runs a real request, like `runConnectionTest` does, and therefore marks the config
@@ -209,7 +209,7 @@ final class AgentClient {
     private func testGateway(_ profile: Profile) async -> RemoteNaturalLanguage.TestOutcome {
         do {
             // Not remembered: the probe is Settings' question, not the person's, and kept it
-            // became the first turn of their next conversation (TBX-1000000505 B-21).
+            // became the first turn of their next conversation.
             let reply = try await askGateway("What is playing right now?", profile: profile, remembering: false)
             let answer = reply.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return .ok(answer.isEmpty ? "Your Baton server answered." : "Your Baton server answered: \(answer)")

@@ -3,7 +3,7 @@ import XCTest
 /// Next onto a book's last chapter, then let that chapter end: the book stops. It must not play
 /// the last chapter a second time.
 ///
-/// The TBX-10974 walk's own steps, on `FakeHomeServer`'s three-chapter book: chapter 2 reached by
+/// The walk's own steps, on `FakeHomeServer`'s three-chapter book: chapter 2 reached by
 /// a gapless boundary (so chapter 3 sits preloaded behind it), Next onto chapter 3, a scrubber
 /// seek near its end straight away, and the end. Before the fix the seek dropped the skip blend,
 /// chapter 2 played on under chapter 3's name, rolled into the stale preload of chapter 3, and
@@ -243,7 +243,7 @@ final class BookLastChapterUITests: XCTestCase {
         removeUIInterruptionMonitor(monitor)
     }
 
-    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    /// Books has its own Library section since an internal task; the route is `BooksScreen`.
     private func openBooks() {
         BooksScreen.open(app)
     }

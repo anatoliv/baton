@@ -78,7 +78,7 @@ final class SelectionReaderTests: XCTestCase {
     /// saved contents back regardless, which rewrote a clipboard nothing had touched: it bumped
     /// the change count (so a password manager's clear-after-a-minute saw "the user copied
     /// something else" and stood down) and replaced promised types with plain data
-    /// (TBX-1000000504, A-12).
+    ///
     func testACopyThatNeverLandsLeavesThePasteboardUntouched() {
         pasteboard.clearContents()
         pasteboard.setString("a password the manager will clear", forType: .string)

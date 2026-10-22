@@ -9,7 +9,7 @@ import Foundation
 ///     PUT    /v1/books/{id}/upload             a book made on another device: its
 ///                                              PreparedBook, kept as a job nothing here renders
 ///     PUT    /v1/books/{id}/cover              the book's cover, a JPEG or PNG a device re-encoded
-///, checked against its X-Baton-SHA256
+///                                              checked against its X-Baton-SHA256
 ///     PUT    /v1/books/{id}/chapters/{n}/timing  that book's chapter n read-along timing
 ///     PUT    /v1/books/{id}/chapters/{n}       that book's chapter n M4A, checked against its
 ///                                              X-Baton-SHA256 before it is kept

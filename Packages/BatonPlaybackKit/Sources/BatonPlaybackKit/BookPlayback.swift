@@ -63,7 +63,7 @@ public enum BookPlayback {
     ///
     /// A crossing, from below the threshold to at or above it, rather than "anywhere past it":
     /// right after the book finishes, the ledger holds the end of the last chapter, and a tick
-    /// that comes straight after (the last chapter starting once more, as the TBX-10974 walk saw
+    /// that comes straight after (the last chapter starting once more, as the walk saw
     /// on the iPhone) must not undo the finish it just recorded. Play on a finished book starts
     /// at chapter 1, so a real replay always passes through the first minute.
     static func replayPassesThreshold(from previous: ClippingLedger.DocumentRecord,

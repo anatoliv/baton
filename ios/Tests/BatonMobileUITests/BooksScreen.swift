@@ -76,7 +76,7 @@ enum ImportScreen {
             if !make.exists { return }
             RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
         }
-        // TBX-1000000071: one run stopped here with Make Audiobook disabled, the screen still
+        // One run stopped here with Make Audiobook disabled, the screen still
         // awaiting the book's PUT or the notification permission request, and only Baton's
         // hierarchy was kept, so which, and whether an alert was up, could not be told. Eight
         // later runs on fresh simulators closed in about 2 s, through the interruption monitor and

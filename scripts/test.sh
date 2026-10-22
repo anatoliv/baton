@@ -37,7 +37,7 @@ yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 # exit code` on an Xcode-provided test dylib (`errSecInternalComponent`, a keychain
 # refusal), and the second run added a collateral `Ld` failure that printed no
 # diagnostic of its own. Zero `error:` lines in either log. So the report named a
-# cause the evidence did not support and then supported it with nothing. (TBX-5139)
+# cause the evidence did not support and then supported it with nothing.
 #
 # That is this file's oldest defect wearing a new coat. It has twice reported a status
 # that did not mean what it looked like — a 790-test run as "Executed 4 tests", five
@@ -62,7 +62,7 @@ yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 # already gone wrong — a crash here replaces a bad diagnosis with none at all:
 #
 #   * `head` closes the pipe and the producer dies of SIGPIPE (141), which `pipefail`
-#     reports as failure and `set -e` turns into a silent exit. That is TBX-5132's bug
+#     reports as failure and `set -e` turns into a silent exit. That is an internal task bug
 #     exactly. So `first_n`/`last_n` below use awk, which reads its input to the end.
 #   * a pipeline that legitimately matches nothing also fails under `pipefail`, and an
 #     assignment takes that status. Every extractor therefore ends `|| true` and never
@@ -280,7 +280,7 @@ fi
 #
 # One function rather than a check at each site, because there are two suites here and
 # "when something exists in more than one place, put it in one" is the rule this codebase
-# keeps paying to relearn. (TBX-2924)
+# keeps paying to relearn.
 #
 # `ALLOW_NO_TESTS=1` is the escape hatch, and it is deliberately **not** an automatic
 # exemption for `-only-testing` runs: a mistyped filter is the likeliest way to arrive
@@ -296,7 +296,7 @@ empty_run_is_failure() { [ -z "${ALLOW_NO_TESTS:-}" ]; }
 # Measured 2026-09-08 on one iPhone run: the grep said 154, the result bundle said 157, and
 # the three it could not see were the `Artwork wash` suite. Nothing was lost; the gate
 # simply could not count them, and it could not have counted any `@Test` written since.
-# (TBX-5236)
+#
 #
 # The consequence is this file's oldest defect wearing yet another coat: **delete every
 # swift-testing test in the phone suite tomorrow and the gate's iPhone line would not
@@ -412,17 +412,17 @@ fi
 # this script first, and both runs app-hosted the same `Baton.app` out of `/tmp/baton-dd`.
 # Launching the second instance made LaunchServices quit the first. `testmanagerd` logged
 # two "Initiating session" lines 400 ms apart, which is the same event seen from the other
-# side. (TBX-5291)
+# side.
 #
 # Two properties make it worth a guard rather than a note:
 #
 #   * It lies. The victim reports a runner death against whatever test was in flight, so
-#     the reader goes and reads TBX-2848's four failed repro attempts before the backtrace
+#     the reader goes and reads an internal task four failed repro attempts before the backtrace
 #     points anywhere else.
 #   * The victim is arbitrary. That afternoon the release won and an ad-hoc gate lost;
 #     twenty seconds the other way and a **release** dies twelve minutes in.
 #
-# THE STEP, not the whole script (TBX-11003). The collision is over the app-hosted
+# THE STEP, not the whole script. The collision is over the app-hosted
 # `Baton.app`, and only the Mac `xcodebuild test` of the Baton scheme hosts it, so only that
 # step takes the `mac-app-host` lock (scripts/gate-lock.sh over scripts/native-lock.sh). The
 # lints, the guard scripts, the iPhone and Watch steps and the gateway run unlocked, beside
@@ -454,14 +454,14 @@ fi
 # --- A receipt for a passing full run ----------------------------------------
 #
 # The Mac and iPhone releases each ran this whole gate, on the same commit, one after the
-# other (TBX-11003). A passing FULL run over a clean tree now writes a receipt
+# other. A passing FULL run over a clean tree now writes a receipt
 # (scripts/gate-receipt.sh) that both releases accept for that exact commit, gate script
 # and Xcode. Anything narrower than the full gate writes none: pass-through arguments,
 # SKIP_IOS, ALLOW_NO_TESTS, the concurrency override, or a tree that was dirty or moved.
 #
 # A lint-source override is narrower too, though it changes no test count: BATON_LINT_SRC and
 # its siblings (every BATON_*LINT* variable) point a lint at a planted tree rather than this
-# one, so a run with one set never linted this tree (TBX-1000000503 F-12). The variables are
+# one, so a run with one set never linted this tree. The variables are
 # captured and then tested, never `env | grep -q`, which fails open under pipefail.
 GATE_SKIPS=""
 GATE_RECEIPT_HEAD=""
@@ -530,7 +530,7 @@ mac_step_lock() {   # "$@" = the arguments forwarded to xcodebuild
 # DerivedData. Matched on the exact path prefix, never a pattern, so another run's host is
 # never touched.
 # Both spellings of the path: macOS reports /tmp as /private/tmp in `ps`, so a DerivedData
-# under /tmp is matched by its resolved path too (TBX-11003 review 2).
+# under /tmp is matched by its resolved path too.
 own_test_hosts() {
   local resolved
   resolved="$(cd "$DERIVED" 2>/dev/null && pwd -P || printf '%s' "$DERIVED")"
@@ -596,9 +596,9 @@ lint_fail=0
 # `BATON_LINT_SRC` and `LINT_ONLY` exist so `scripts/test-lints.sh` can drive **this** block
 # over a tree of planted violations rather than keeping its own copy of the patterns. A guard
 # that reimplements what it guards drifts from it, and then passes for the wrong reason —
-# which is the failure mode this whole file keeps paying for. (TBX-5132)
+# which is the failure mode this whole file keeps paying for.
 SRC="${BATON_LINT_SRC:-$APP_DIR/Sources/Baton}"
-# CAPTURE, then test — never `producer | grep -q`. (TBX-5132)
+# CAPTURE, then test — never `producer | grep -q`.
 #
 # Both lints below used to be `grep … | grep -q .` with the *violation* in the `then`
 # branch, and under the `set -o pipefail` at the top of this file that shape fails OPEN.
@@ -609,16 +609,16 @@ SRC="${BATON_LINT_SRC:-$APP_DIR/Sources/Baton}"
 # buffer before `grep -q` leaves: a couple of violations pass through and the lint works;
 # many violations and the producer is still writing when the pipe closes. **It fails open
 # precisely when there is the most to find.** Demonstrated with 8000 planted violations of
-# W-16 below — the lint printed nothing and returned success.
+# An internal task below — the lint printed nothing and returned success.
 #
-# W-16 is the one that matters: it is a credential lint (Subsonic auth rides in the query
+# An internal task is the one that matters: it is a credential lint (Subsonic auth rides in the query
 # string of a URL), so it could pass while the thing it guards was leaking.
 #
 # `scripts/test-lints.sh` plants real violations and asserts each lint fires, so this
 # cannot come back silently.
 lint_hits() { grep -rnE "$1" "$SRC" --include='*.swift' || true; }
 
-# W-18: a single log subsystem (io.tonebox.baton) so `log show` captures everything and
+# A single log subsystem (io.tonebox.baton) so `log show` captures everything and
 # doesn't collide with the Tonebox app. Any other Logger(subsystem:) is a regression.
 subsystem_hits="$(lint_hits 'Logger\(subsystem:' | grep -v 'io.tonebox.baton' || true)"
 if [ -n "$subsystem_hits" ]; then
@@ -626,14 +626,14 @@ if [ -n "$subsystem_hits" ]; then
   printf '%s\n' "$subsystem_hits" | sed 's/^/    /' >&2
   lint_fail=1
 fi
-# W-16: never log a full URL (Subsonic auth rides in the query string).
+# Never log a full URL (Subsonic auth rides in the query string).
 url_hits="$(lint_hits '(^|[^A-Za-z])[Ll]og[A-Za-z]*\.(error|info|notice|debug|warning|fault|log)\(.*absoluteString')"
 if [ -n "$url_hits" ]; then
   red "  lint: a full URL (.absoluteString) is being logged:"
   printf '%s\n' "$url_hits" | sed 's/^/    /' >&2
   lint_fail=1
 fi
-# W-19: an icon-only Button must carry an .accessibilityLabel. `.help()` is not one:
+# An icon-only Button must carry an .accessibilityLabel. `.help()` is not one:
 # SwiftUI maps it to the accessibility *hint*, so VoiceOver falls back to reading the SF
 # Symbol name and the user hears "backward.fill". 89 of the Mac app's 114 icon-only
 # controls had drifted that way before this rule existed, including a five-button
@@ -651,7 +651,7 @@ fi
 # It USED to also be narrow by file: a fixed allowlist of nine primary-path files, on the
 # argument that a lint scoped to files nobody had fixed yet couldn't be blocking. That left
 # 55 unlabelled controls sitting outside the allowlist, in both apps, found only by a
-# one-off grep (TBX-5327). Every one of those is fixed now, so the allowlist is gone: this
+# one-off grep. Every one of those is fixed now, so the allowlist is gone: this
 # scans every `.swift` file under both apps' view trees. `BATON_LINT_SRC`, when set,
 # replaces the whole root list with that one directory — that's how `test-lints.sh` points
 # it at a planted tree without also picking up the real source.
@@ -712,10 +712,10 @@ if [ -n "$icon_hits" ]; then
   printf '%s\n' "$icon_hits" | sed 's/^/    /' >&2
   lint_fail=1
 fi
-# W-20: a bare import of a framework the Linux gateway image (swift:6.0-jammy) does not have,
+# A bare import of a framework the Linux gateway image (swift:6.0-jammy) does not have,
 # outside `#if canImport(...)`, breaks a build nothing here checks. Until now the only
 # compiler for this was the Linux Docker image, which meant `deploy.sh` on the deploy host was the
-# first place it could fail. It failed there twice in eleven days (TBX-3907, TBX-5323):
+# first place it could fail. It failed there twice in eleven days:
 # `BatonStorage.swift` and `VersionedStore.swift` each wrote `import OSLog` directly instead
 # of going through `PlatformCompat.swift`, which exists precisely to shim OSLog, CryptoKit and
 # Security for Linux. Every other file in the package gets this right by omission, which is
@@ -825,7 +825,7 @@ if [ -n "$import_lint_hits" ]; then
   red "  instead, or guard it with #if canImport(<module>) if the file itself is Apple-only."
   lint_fail=1
 fi
-# W-21: no em dash (U+2014) or en dash (U+2012, U+2013) inside a string a user reads.
+# No em dash (U+2014) or en dash (U+2012, U+2013) inside a string a user reads.
 # Published copy here is written with the punctuation the sentence actually wants instead:
 # a period between two independent clauses, a colon before a definition, parentheses around
 # an aside, a comma only for a tight one.
@@ -833,7 +833,7 @@ fi
 # The 0.19.0 copy pass fixed the strings a review had listed by hand. A count afterwards
 # found 74 more in 29 files by grep, and the real figure was 117 in 34 files, because a grep
 # for a quoted dash on one line cannot see a backslash-continued or triple-quoted string and
-# cannot tell a string from a comment either (TBX-5348). Both misses are why this is a Python
+# cannot tell a string from a comment either. Both misses are why this is a Python
 # lexer over the source rather than another pattern: it knows single-line, multi-line and raw
 # literals, interpolation with strings nested inside it, and comments.
 #
@@ -841,7 +841,7 @@ fi
 # range in shipped release notes) live in the allowlist beside the script, keyed on the file
 # path plus the text of the line, so rewriting the sentence ends the exemption.
 #
-# `Packages`, `gateway` and `watch/Sources` joined the default roots in TBX-5362, a follow-up
+# `Packages`, `gateway` and `watch/Sources` joined the default roots in an internal task, a follow-up
 # to the card above: the lexer's own roots stopped at the two apps, so the Telegram/Discord
 # bot replies in `Packages/BatonAgentKit` (a user reads every one of those in a chat window)
 # and the gateway's own replies went unguarded. `Tests/` is out of scope inside a package the
@@ -849,7 +849,7 @@ fi
 # not touch test fixtures.
 #
 # `BATON_DASH_LINT_SRC` and `BATON_DASH_LINT_ALLOWLIST` let `scripts/test-lints.sh` drive
-# THIS block over a planted tree, the same way `BATON_IMPORT_LINT_SRC` does for W-20.
+# THIS block over a planted tree, the same way `BATON_IMPORT_LINT_SRC` does for an internal task.
 DASH_LINT_ALLOWLIST="${BATON_DASH_LINT_ALLOWLIST:-scripts/lint-prose-dashes-allowlist.txt}"
 if [ -n "${BATON_DASH_LINT_SRC:-}" ]; then
   DASH_LINT_DIRS=("$BATON_DASH_LINT_SRC")
@@ -865,12 +865,12 @@ if [ -n "$dash_lint_hits" ]; then
   red "  one). If the dash is typography rather than prose, add it to $DASH_LINT_ALLOWLIST."
   lint_fail=1
 fi
-# W-22: a package under Packages/ that ships a test target but is missing from the Mac
+# A package under Packages/ that ships a test target but is missing from the Mac
 # scheme's `test.targets` list in app/project.yml. `BatonSubsonicKitTests` (added by WS3,
-# TBX-5309) sat in exactly this hole: it passed under `swift test` run by hand inside the
+# An internal task) sat in exactly this hole: it passed under `swift test` run by hand inside the
 # package, which is how WS3 verified it, and was never added to the scheme, so
 # scripts/test.sh built the package and executed none of its tests. A suite green in one
-# place looks identical to one that runs nowhere (TBX-5363). This is the rule from
+# place looks identical to one that runs nowhere. This is the rule from
 # CLAUDE.md, "check the test count, not just the tick", one level up, at the scheme itself.
 #
 # A package left out on purpose (its scheme wiring belongs to a card already in flight, or
@@ -880,7 +880,7 @@ fi
 #
 # `BATON_SCHEME_LINT_PACKAGES_DIR`, `BATON_SCHEME_LINT_PROJECT_YML` and
 # `BATON_SCHEME_LINT_ALLOWLIST` let `scripts/test-lints.sh` point this at a planted tree,
-# the same way `BATON_IMPORT_LINT_SRC` does for W-20.
+# the same way `BATON_IMPORT_LINT_SRC` does for an internal task.
 SCHEME_LINT_PACKAGES_DIR="${BATON_SCHEME_LINT_PACKAGES_DIR:-Packages}"
 SCHEME_LINT_PROJECT_YML="${BATON_SCHEME_LINT_PROJECT_YML:-app/project.yml}"
 SCHEME_LINT_ALLOWLIST="${BATON_SCHEME_LINT_ALLOWLIST:-scripts/test-lint-scheme-allowlist.txt}"
@@ -910,7 +910,7 @@ if [ -n "$scheme_hits" ]; then
   lint_fail=1
 fi
 
-# W-23: every place that copies the gateway's sibling packages copies all of them.
+# Every place that copies the gateway's sibling packages copies all of them.
 #
 # The gateway package reaches `../Packages/*` by path, and SwiftPM resolves every declared
 # dependency whichever product is built. Five places copy that set by hand: both Dockerfiles,
@@ -1010,7 +1010,7 @@ fi
 # that sets it, `XCUIApplication.batonUnderTest()` (BatonUnderTest.swift). A test instance
 # that syncs sends its reset state to the owner's shared settings as the newest word, which
 # emptied them on 2026-10-14, and 30 suites had been written without the switch
-# (TBX-1000000014). A bare `XCUIApplication()` is how a new suite would leave it out.
+# A bare `XCUIApplication()` is how a new suite would leave it out.
 # `BATON_UITEST_LINT_SRC` lets `scripts/test-lints.sh` point this at a planted tree.
 UITEST_LINT_SRC="${BATON_UITEST_LINT_SRC:-ios/Tests/BatonMobileUITests}"
 bare_app_hits="$(grep -rnE 'XCUIApplication\(\)' "$UITEST_LINT_SRC" --include='*.swift' \
@@ -1024,7 +1024,7 @@ fi
 if [ -n "${LINT_ONLY:-}" ]; then exit "$lint_fail"; fi
 # The public mirror's own secrets guard, run over what this branch changed since it left
 # origin/main, so a LAN address or a house machine name is caught at merge rather than by
-# publish-repo.sh after a release has shipped (TBX-11003). The whole tree is checked by
+# publish-repo.sh after a release has shipped. The whole tree is checked by
 # scripts/release-ready.sh; publish-repo.sh keeps its guard as the final barrier.
 if [ ! -f scripts/publish-repo.sh ]; then
   :   # the public mirror itself has no publish-repo.sh, and nothing to guard against
@@ -1036,7 +1036,7 @@ elif PUBLIC_SAFE_BASE="$(git merge-base HEAD origin/main 2>/dev/null)"; then
 else
   yellow "  public mirror guard skipped: no origin/main to compare this branch with"
 fi
-# The lock protocol is the release kit's lib/native-lock.sh (TBX-11024): its pin, checked by
+# The lock protocol is the release kit's lib/native-lock.sh: its pin, checked by
 # release-kit/check below, refuses any local edit, and scripts/native-lock.sh only configures
 # it. _method/tools/native-lock.sh is a byte copy of the same module for projects without the
 # kit; a difference means one side is on another kit version, so it is named, not fatal (a
@@ -1058,18 +1058,18 @@ fi
 # nothing ran either of them:
 #
 #   test-release-guard.sh   the tree cannot change under a running release, after
-#                           a build uploaded as the wrong version (TBX-5058)
+#                           a build uploaded as the wrong version
 #   test-signing-patch.sh   the signing patch does not re-insert keys already in
-#                           project.yml, after four releases did (TBX-5066)
+#                           project.yml, after four releases did
 #   test-app-store-metadata the App Store metadata tool reconciles the repo against
 #                           App Store Connect correctly, driven against a mock so it
-#                           needs no credentials and touches no live listing (TBX-5075)
+#                           needs no credentials and touches no live listing
 #
 # A guard nobody invokes is worse than one that cannot fail, because it still
 # reads as coverage. `grep -n test-signing-patch scripts/test.sh` returned nothing
 # on the day it was written, and the defect it guards is precisely the kind that
 # hides — duplicate YAML keys holding identical values, which xcodegen resolves
-# silently and no build ever complains about. (TBX-5073)
+# silently and no build ever complains about.
 #
 # They need no Xcode, no simulator and nothing from Apple, and finish in about a
 # second each, so they run here rather than behind the iPhone build. They run even
@@ -1081,35 +1081,35 @@ fi
 #   test-lints             the two source lints above can actually fail — they were
 #                          `grep … | grep -q .`, which under pipefail returns 141 on a
 #                          match and reads as "nothing found", so a credential lint could
-#                          pass while leaking (TBX-5132)
+#                          pass while leaking
 #   test-gate-diagnosis    THIS script's own failure report names the cause the log
 #                          states, and never prints a header with nothing under it —
 #                          it reported a codesign failure as "Compile errors:" and
-#                          then listed none, twice in one afternoon (TBX-5139)
+#                          then listed none, twice in one afternoon
 #   test-gate-counts       THIS script counts every test that ran, not just the ones the
 #                          XCTest reporter rolls up — it reported a 157-test iPhone run as
 #                          154 because swift-testing prints a different line, and would
-#                          not have moved if all three had been deleted (TBX-5236)
+#                          not have moved if all three had been deleted
 #   test-testflight-exits  testflight.sh's exit code says the same thing as its last line —
 #                          a metadata failure exited silently because `set -e` made the
-#                          message dead code, and an unattached build exited 0 (TBX-5317).
+#                          message dead code, and an unattached build exited 0.
 #                          It also holds the phone's half of the dSYM retention: the
 #                          archive's symbols are copied to their own per-build name before
 #                          the next archive removes them, and every ending says whether
-#                          they reached Crashbox (TBX-5372)
+#                          they reached Crashbox
 #   test-gate-lock         THIS script holds the Baton.app test host for its Mac step only,
 #                          waits for it (or refuses at BATON_GATE_LOCK_WAIT=0) naming the
 #                          holder, puts a waiting release first, keeps one run per simulator,
 #                          and a record left by a killed gate does not wedge the next run —
 #                          two gates used to app-host the same Baton.app and LaunchServices
 #                          quit the first, reported as a runner death against an unrelated
-#                          test (TBX-5291, TBX-11003)
+#                          test
 #   test-publish-guards    publish.sh's notarize wall clock is really armed, and a failed
 #                          Gatekeeper assessment stops the release — the wall clock used to
 #                          vanish silently without coreutils, and a rejected DMG published
-#                          on a yellow line (TBX-5317). Plus the Mac's dSYM retention: a
+#                          on a yellow line. Plus the Mac's dSYM retention: a
 #                          release's symbols outlive the next release, and the DONE line
-#                          says whether anyone uploaded them (TBX-5372)
+#                          says whether anyone uploaded them
 #   test-crashbox-artifact-upload
 #                          the generated mode-0600 credential is bounded and never
 #                          reaches argv/output, and a response must match this exact
@@ -1117,15 +1117,15 @@ fi
 #   test-untracked-credentials
 #                          a credential-looking file that is untracked and not ignored is
 #                          refused, on planted fakes including the exact .gitignore that let
-#                          a live upload credential sit unprotected in ios/Config/ (TBX-7289)
+#                          a live upload credential sit unprotected in ios/Config/
 #   test-probe-lock        the probe checks (scripts/probe-*.sh) run one at a time: a second
 #                          run waits and names the holder, a killed run's lock is reclaimed,
 #                          a live holder past the timeout gives status 3, and only the holder
 #                          can release. Two agents' probes on one screen failed each other
-#                          (TBX-7383)
+#
 #   release-kit/check      the vendored release kit is exactly its pinned version, and its
-#                          tests pass on those bytes: the main guard (TBX-7466), bounded
-#                          notarization without pkill, tags, live checks (TBX-7514)
+#                          tests pass on those bytes: the main guard, bounded
+#                          notarization without pkill, tags, live checks
 #   test-ship-main-guard   and every ship path is wired to it: publish.sh, testflight.sh,
 #                          publish-site.sh, publish-repo.sh and the gateway deploy each
 #                          refuse a planted unmerged commit before touching a stubbed tool.
@@ -1133,25 +1133,25 @@ fi
 #   test-backup-repo       the private backup pushes branches the remote lacks, accepts a
 #                          local branch that is only BEHIND the remote, still pushes tags,
 #                          and refuses a diverged one. A bare `push --all` failed the daily
-#                          repo-backup over a stale local main with nothing missing (TBX-8430)
+#                          repo-backup over a stale local main with nothing missing
 #   test-offsite-backup    the home server's offsite backup and restore (gateway/deploy/backup/) refuse
 #                          without a key or a version-2 immutable helper, record the four receipt
 #                          states honestly, never put a key or transport value in a log, and
 #                          restore an older generation under the newest one's tombstones and
-#                          enforcement overlay (TBX-10672). Stubs for the helper, docker and flock
+#                          enforcement overlay. Stubs for the helper, docker and flock
 #   test-backup-mac-native the Mac native offsite backup (scripts/backup-mac-native.sh, profile A)
 #                          refuses without a key, a loose holder or rclone config, or an existing
 #                          remote object, records the four receipt states honestly, checks in to
 #                          the deadman exactly once and only after integrity, never puts a key or
 #                          rclone token in a log, and its export round-trips through a real
-#                          `defaults import` (TBX-10829). Stubs for rclone, ssh, security, defaults
+#                          `defaults import`. Stubs for rclone, ssh, security, defaults
 #   test-gate-receipt      a passing full gate's receipt is reused by both releases only for the
 #                          same commit, gate script and Xcode on a clean tree, and every refusal
-#                          says why (TBX-11003)
+#                          says why
 #   test-lint-public-safe  the merge-time copy of publish-repo.sh's own secrets guard still finds
-#                          its blocks, refuses what the mirror refuses and scopes --diff (TBX-11003)
+#                          its blocks, refuses what the mirror refuses and scopes --diff
 #   test-release-ready     the release-readiness report names every precondition, prints no
-#                          secret and reads the gate lock without taking it (TBX-11003)
+#                          secret and reads the gate lock without taking it
 #
 # The guard itself then runs over THIS tree: a gate that goes green with a live
 # credential lying where `git add -A` would take it has certified the wrong thing.
@@ -1162,7 +1162,7 @@ fi
 for guard in test-release-guard test-signing-patch test-app-store-metadata test-crash-reporting-config test-lints test-gate-diagnosis test-gate-counts test-testflight-exits test-gate-lock test-publish-guards test-mac-association-signing test-crashbox-artifact-upload test-untracked-credentials test-probe-lock release-kit/check test-ship-main-guard test-backup-repo test-offsite-backup test-backup-mac-native test-gate-receipt test-lint-public-safe test-release-ready; do
   # A guard named by path (release-kit/check) must not put its slash into the log name:
   # mktemp -t then targets a subdirectory of $TMPDIR that does not exist, and the gate died
-  # here on every run from the release kit's adoption until 0.19.12 (TBX-8023).
+  # here on every run from the release kit's adoption until 0.19.12.
   GUARD_LOG="$(mktemp -t "baton-${guard//\//-}.XXXXXX").log"
   if [ -x "scripts/$guard.sh" ]; then
     guard_cmd=("scripts/$guard.sh")
@@ -1197,7 +1197,7 @@ done
 # above had just printed "test-app-store-metadata: 43 passed" for the same files.
 # attach-build.py is the one that would have hurt, because it runs AFTER the upload,
 # and the whole reason it exists is that a build nobody attaches is invisible to
-# testers while looking perfectly fine in App Store Connect. (TBX-3928)
+# testers while looking perfectly fine in App Store Connect.
 #
 # Loading the module is the whole check: the failure is at def time, not at call time.
 RELEASE_PYTHON="$(PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH" command -v python3)"
@@ -1240,7 +1240,7 @@ fi
 # The guard above proves the tool works. This asks the question the tool exists for,
 # against the real App Store Connect: has anyone edited the listing in the web form
 # since the repo last looked? If so, `ios/metadata/en-US.json` is a lie and
-# `AppStoreMetadataTests` has been guarding values nobody ships (TBX-5075).
+# `AppStoreMetadataTests` has been guarding values nobody ships.
 #
 # NOT --strict here, and that is a deliberate asymmetry worth stating. Without ASC
 # credentials or a network this prints SKIP and passes, because failing the whole
@@ -1287,7 +1287,7 @@ if [ -z "${SKIP_IOS:-}" ]; then
   IOS_RESULT_BUNDLE="${IOS_LOG%.log}.xcresult"
   # Before generating, not after: xcodegen enumerates ios/Resources/ as it builds the
   # project, and the two guides are gitignored, so on a clean checkout they are absent at
-  # that moment and never reach the bundle. See ios/scripts/sync-help.sh. (TBX-3928)
+  # that moment and never reach the bundle. See ios/scripts/sync-help.sh.
   ./ios/scripts/sync-help.sh
   ( cd ios && xcodegen generate >/dev/null )
 
@@ -1303,7 +1303,7 @@ if [ -z "${SKIP_IOS:-}" ]; then
   #
   # That exclusion is still right, and it used to mean nothing ran them at all — which is
   # how the only test that photographs the Music Friend composer sat broken for an unknown
-  # period (TBX-5148). They now run on the **release** path: `testflight.sh` runs a bounded
+  # period. They now run on the **release** path: `testflight.sh` runs a bounded
   # release set through `ios/scripts/ui-tests.sh`, blocking, with skips reported as skips.
   # Same split as the App Store metadata check below, for the same reason.
   #
@@ -1315,7 +1315,7 @@ if [ -z "${SKIP_IOS:-}" ]; then
   #
   # BATON_IOS_SIM_UDID picks a device for this run. Each device has its own `sim-<UDID>` lock
   # for this step, so two runs never share one simulator, and two runs given different
-  # devices (and different BATON_DERIVED_DATA) test in parallel. (TBX-11003)
+  # devices (and different BATON_DERIVED_DATA) test in parallel.
   IOS_SIM_INFO="$(xcrun simctl list devices available -j 2>/dev/null \
     | BATON_IOS_SIM_UDID="${BATON_IOS_SIM_UDID:-}" python3 -c "
 import os, sys, json
@@ -1391,7 +1391,7 @@ for runtime, entries in devices.items():
     # Yellow, not bold: this is a check that could not run, and `yellow` exists for
     # exactly that distinction. In bold it read like an ordinary step, so a machine with
     # no simulator runtime produced a log where the iPhone stage looked done. It is not:
-    # the app compiles and no phone test executes. (TBX-5317, D-F7)
+    # the app compiles and no phone test executes.
     yellow "==> Building iPhone app only (no simulator installed): BatonMobileTests will not run"
     GATE_SKIPS="${GATE_SKIPS:+$GATE_SKIPS,}iphone-tests"
     xcodebuild build \
@@ -1411,7 +1411,7 @@ for runtime, entries in devices.items():
     # The result bundle, not the log. This was `grep -hoE 'Executed [0-9]+ tests?' | tail -1`
     # — the XCTest rollup, which cannot see a swift-testing test and so reported 154 for a
     # run of 157. See `bundle_counts` above for the measurement and why it matters more
-    # than three tests. (TBX-5236)
+    # than three tests.
     ios_counts="$(bundle_counts "$IOS_RESULT_BUNDLE")"
     ios_failed_n=""
     if [ -n "$ios_counts" ]; then
@@ -1537,7 +1537,7 @@ for runtime, entries in devices.items():
     # The Watch app is parked, and CLAUDE.md says the gate building it "is what makes
     # parking safe": it silently stopped compiling twice and nobody noticed, because
     # nothing built it. On a machine with no watchOS runtime that guard does not fire, and
-    # printing the fact in bold made the log read as though it had. (TBX-5317, D-F7)
+    # printing the fact in bold made the log read as though it had.
     #
     # And a release is where a skip actually costs something, which is the split this repo
     # already makes for the App Store metadata check and for the phone's UI tests. CLEAN=1
@@ -1579,14 +1579,14 @@ if [ -z "${SKIP_IOS:-}" ]; then
     # Both reporters, summed. `swift test` writes no result bundle, so the log is all there
     # is — but the log carries two rollups and this line used to read only the XCTest one.
     # The gateway has no `@Test` tests today; the whole point is that the number will move
-    # on the day it gets one, rather than silently staying put. (TBX-5236)
+    # on the day it gets one, rather than silently staying put.
     gateway_n="$(log_test_total "$GATEWAY_LOG")"
     # Zero tests is not a pass, here as everywhere else. `swift test` exits 0 when the
     # target has no tests left in it, so a rename or a target dropped from Package.swift
     # would have printed a green "its tests pass" line over a run that proved nothing,
     # on the one component described two comments up as load-bearing for phone sync. The
     # iPhone stage and the Mac summary have routed through `empty_run_is_failure` for this
-    # reason since TBX-5236; this stage was the one that did not. (TBX-5317, D-F6)
+    # reason since an internal task; this stage was the one that did not.
     if [ "${gateway_n:-0}" -eq 0 ] && empty_run_is_failure; then
       red "✗ GATEWAY executed NO tests: exit 0, and nothing was proved"
       red "  swift test succeeded and ran nothing: check gateway/Package.swift still lists"
@@ -1613,12 +1613,34 @@ if [ -z "${SKIP_IOS:-}" ]; then
   # deploy. This stage reuses that script's rsync + `docker build` shape (only the packages
   # the gateway's dependency graph reaches, not the whole repo) but against a throwaway tag,
   # `baton-gateway:gate`, in a directory of its own on the host, so it can never touch the
-  # running container, its named volume, or `docker compose`. It is a build only.
+  # running container, its named volume, or `docker compose`.
   #
-  # A lint above (W-20) catches the one class of Linux break seen so far, a bare import of a
+  # Then the gateway package's tests, on Linux, in the same pinned swift:6.0-jammy that
+  # share.Dockerfile builds baton-share with (the pin is read from that file, so moving it
+  # moves this). Until 2026-10-22 this stage was a build only, and 45 tests that failed on
+  # Linux, two of them crashing the runner, went unseen until a deploy ran them by hand
+  # The tests run in a throwaway container as the host
+  # user, over the same directory, so no root-owned file is left behind. specs/share-crypto
+  # goes too: the mixtape tests read the independent vectors from it. The test image adds
+  # SQLite's headers and ffmpeg, which the gateway image ships for book chapters, so the four
+  # book-export tests run rather than skip.
+  #
+  # Two things keep the test run from leaking into the next gate (review FBF4E672):
+  #   * Its build products go to `.gate-tests-build` at the top of the gate directory, outside
+  #     the copied `gateway/`, and a `.dockerignore` written there each run keeps that and any
+  #     `.build` out of every `docker build` context. Without both, `COPY gateway gateway`
+  #     took a ~1 GB `.build` into the image build, busting its cache and growing the host
+  #     on every gate. The scratch path is still reused from one gate to the next.
+  #   * The container is bounded inside itself (`--init`, `timeout -k 30`, well under the
+  #     outer wall clock) and has a fixed name that is removed before each run and, on any
+  #     failure, before the lock is released. The outer `timeout` only kills the local ssh;
+  #     without these, a hung test kept running on the host after the lock was free.
+  #     BATON_GATE_LINUX_TEST_TIMEOUT (seconds, default 1080) moves the inner bound.
+  #
+  # A lint above catches the one class of Linux break seen so far, a bare import of a
   # framework the shim exists to cover. It does not catch an API-level gap, which only a real
   # Linux compiler can: BatonAgentKit pulling in the whole playback engine for three
-  # read-only properties (TBX-3907) was exactly that shape, and no lint would have caught it.
+  # read-only properties was exactly that shape, and no lint would have caught it.
   #
   # Skipped, in yellow, when WEB01 is unset or the host does not answer within a few seconds, because an
   # unreachable builder is *not measurable* rather than broken, the same judgement the
@@ -1628,7 +1650,7 @@ if [ -z "${SKIP_IOS:-}" ]; then
   LINUX_GATEWAY_HOST="${WEB01:-}"
   if [ "${SKIP_LINUX_GATEWAY:-0}" != "1" ] \
      && ssh -o ConnectTimeout=5 -o BatchMode=yes "$LINUX_GATEWAY_HOST" 'command -v docker' >/dev/null 2>&1; then
-    bold "==> Gateway builds for Linux on $LINUX_GATEWAY_HOST (agent-layer platform guard)"
+    bold "==> Gateway builds and tests for Linux on $LINUX_GATEWAY_HOST (agent-layer platform guard)"
 
     # Same portable wall clock as `scripts/publish.sh`'s notarize step: `timeout` is not a
     # macOS builtin, Homebrew's coreutils supplies it as `timeout` or `gtimeout` depending on
@@ -1651,31 +1673,62 @@ if [ -z "${SKIP_IOS:-}" ]; then
     fi
 
     LINUX_REMOTE_DIR="${LINUX_GATEWAY_REMOTE_DIR:-baton-gateway-gate}"
+    LINUX_TEST_BASE="$(sed -n 's/^FROM \(swift:6\.0-jammy@sha256:[0-9a-f]\{64\}\) AS build$/\1/p' gateway/deploy/share.Dockerfile)"
+    if [ -z "$LINUX_TEST_BASE" ]; then
+      red "✗ no pinned swift:6.0-jammy build stage in gateway/deploy/share.Dockerfile to run the Linux tests in"
+      exit 1
+    fi
+    LINUX_TEST_TIMEOUT="${BATON_GATE_LINUX_TEST_TIMEOUT:-1080}"
+    case "$LINUX_TEST_TIMEOUT" in ''|*[!0-9]*) red "✗ BATON_GATE_LINUX_TEST_TIMEOUT must be whole seconds"; exit 1 ;; esac
+    LINUX_TEST_CONTAINER=baton-gateway-gate-tests
     LINUX_LOG="$(mktemp -t baton-gateway-linux.XXXXXX).log"
     LINUX_BUILD_SH="$(mktemp -t baton-gateway-linux-build.XXXXXX).sh"
     cat > "$LINUX_BUILD_SH" <<BUILDEOF
 set -euo pipefail
-ssh "$LINUX_GATEWAY_HOST" "mkdir -p ~/$LINUX_REMOTE_DIR/Packages"
+ssh "$LINUX_GATEWAY_HOST" "mkdir -p ~/$LINUX_REMOTE_DIR/Packages ~/$LINUX_REMOTE_DIR/specs"
 rsync -a --delete --exclude '.build' --exclude '.git' \\
   Packages/BatonAgentKit Packages/BatonSubsonicKit Packages/BatonSubsonicModels Packages/BatonMCPProtocol Packages/BatonDocuments Packages/BatonShareKit \\
   "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR/Packages/"
 rsync -a --delete --exclude '.build' gateway/ "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR/gateway/"
+rsync -a --delete specs/share-crypto "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR/specs/"
+printf '**/.build\n.gate-tests-build\n' | ssh "$LINUX_GATEWAY_HOST" "cat > ~/$LINUX_REMOTE_DIR/.dockerignore"
 ssh "$LINUX_GATEWAY_HOST" "cd ~/$LINUX_REMOTE_DIR && cp gateway/deploy/Dockerfile . && docker build -f Dockerfile -t baton-gateway:gate ."
+echo "==> Linux gateway tests"
+printf 'FROM %s\nRUN apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev ffmpeg && rm -rf /var/lib/apt/lists/*\n' "$LINUX_TEST_BASE" \\
+  | ssh "$LINUX_GATEWAY_HOST" "docker build -q -t baton-gateway:gate-tests -"
+ssh "$LINUX_GATEWAY_HOST" "docker rm -f $LINUX_TEST_CONTAINER >/dev/null 2>&1 || true"
+ssh "$LINUX_GATEWAY_HOST" "cd ~/$LINUX_REMOTE_DIR && docker run --rm --init --name $LINUX_TEST_CONTAINER --user \\\$(id -u):\\\$(id -g) -e HOME=/tmp -v \\\$PWD:/src -w /src/gateway baton-gateway:gate-tests timeout -k 30 $LINUX_TEST_TIMEOUT swift test --scratch-path /src/.gate-tests-build"
 BUILDEOF
     # Every gate uses the same directory and image tag on that host, so one at a time.
     step_lock gateway-linux-build "$LINUX_GATEWAY_HOST:~/$LINUX_REMOTE_DIR"
     set +e
-    timeout 600 bash "$LINUX_BUILD_SH" >"$LINUX_LOG" 2>&1
+    timeout 1500 bash "$LINUX_BUILD_SH" >"$LINUX_LOG" 2>&1
     linux_status=$?
+    if [ "$linux_status" -ne 0 ]; then
+      # Whatever stopped the run, its container must not outlive the lock.
+      timeout 60 ssh -o BatchMode=yes "$LINUX_GATEWAY_HOST" "docker rm -f $LINUX_TEST_CONTAINER" >>"$LINUX_LOG" 2>&1
+    fi
     set -e
     step_unlock gateway-linux-build
     rm -f "$LINUX_BUILD_SH"
-    if [ "$linux_status" -eq 0 ]; then
-      green "  gateway builds for Linux on $LINUX_GATEWAY_HOST"
+    linux_n="$(log_test_total "$LINUX_LOG")"
+    if [ "$linux_status" -eq 0 ] && [ "${linux_n:-0}" -eq 0 ] && empty_run_is_failure; then
+      red "✗ LINUX GATEWAY executed NO tests: exit 0, and nothing was proved"
+      red "  Full log: $LINUX_LOG"
+      exit 1
+    elif [ "$linux_status" -eq 0 ]; then
+      green "  gateway builds for Linux on $LINUX_GATEWAY_HOST and its tests pass there${linux_n:+ — $linux_n tests}"
+    elif grep -q '^==> Linux gateway tests' "$LINUX_LOG"; then
+      red "✗ GATEWAY TESTS FAIL ON LINUX (swift:6.0-jammy on $LINUX_GATEWAY_HOST)"
+      red "  The build passed; a test failed, crashed the runner, or the tests passed their"
+      red "  ${LINUX_TEST_TIMEOUT}-second bound (exit 124) or the step its 25 minutes."
+      grep -E "error: |Fatal error|Test Case .* failed|Executed [0-9]+ tests" "$LINUX_LOG" | cut -c1-300 | sed 's/^/    /' | head -20 >&2 || true
+      red "  Full log: $LINUX_LOG"
+      exit "$linux_status"
     else
       red "✗ GATEWAY NO LONGER BUILDS FOR LINUX"
       red "  Something in BatonAgentKit (or below it) now needs an Apple-only framework, or"
-      red "  the build on $LINUX_GATEWAY_HOST timed out after 10 minutes."
+      red "  the build on $LINUX_GATEWAY_HOST timed out after 25 minutes."
       red "  The usual cause is a new import that reaches BatonPlaybackKit; see RemotePlayerContext."
       grep -E "error:|no such module" "$LINUX_LOG" | sed 's/^/    /' | head -15 >&2 || true
       red "  Full log: $LINUX_LOG"
@@ -1692,7 +1745,7 @@ bold "==> Running tests ($SCHEME)"
 # Sibling of the log, so the two are findable together and a fresh mktemp name each run
 # means xcodebuild never refuses an existing bundle path.
 RESULT_BUNDLE="${LOG%.log}.xcresult"
-# MLX's shaders (TBX-10854): without Xcode's Metal Toolchain they cannot compile, so they are left
+# MLX's shaders: without Xcode's Metal Toolchain they cannot compile, so they are left
 # out and the app's "Bundle MLX shaders" phase supplies MLX's published metallib instead.
 MLX_METAL_SETTINGS=()
 while IFS= read -r setting; do [ -n "$setting" ] && MLX_METAL_SETTINGS+=("$setting"); done \
@@ -1810,7 +1863,7 @@ if [ -n "$bundle_summary" ] && [ "${bundle_total:-0}" != "0" ]; then
   summary="$bundle_summary"
 elif [ -n "$bundle_summary" ] && [ "$status" -ne 0 ]; then
   # "the build did not get that far" was true and unhelpful: it says where the run
-  # stopped, never why. The headline names the cause from the log itself. (TBX-5139)
+  # stopped, never why. The headline names the cause from the log itself.
   summary="no tests ran — $(diagnose_headline "$LOG")"
 elif [ -n "$bundle_summary" ]; then
   summary="no tests ran — the build succeeded and nothing matched"
@@ -1850,7 +1903,7 @@ fi
 # failed pointing at whichever test was in flight, which passed in isolation every time, and the
 # blame landed on innocent code. The host now hides itself from the Dock and menu bar during a
 # run (see `RunnerExitDiagnosticBootstrap`), so this should be rare; when it still happens, say
-# what happened rather than naming a test. (TBX-3862)
+# what happened rather than naming a test.
 if [ "$status" -ne 0 ] && grep -q "BATON-DIAG: the test host is exiting while" "$LOG" 2>/dev/null; then
   red "✗ RUN INTERRUPTED — the test host was terminated from outside while a test was running."
   red "  This is not a test failure and the test named below is not implicated."
@@ -1894,7 +1947,7 @@ else
     #
     # These were two arms with two hard-coded headers: "Compile errors:" and "Failing
     # cases:". Each named a cause by position in an if-chain rather than by evidence, so
-    # a codesign failure printed "Compile errors:" above nothing at all. (TBX-5139) The
+    # a codesign failure printed "Compile errors:" above nothing at all. The
     # routine classifies from the log and refuses to print a header it cannot fill.
     diagnose_build_failure "$LOG"
   fi
@@ -1909,7 +1962,7 @@ else
   # Failures only, on purpose: a green run's log is noise, and copying every result bundle
   # would quietly put gigabytes somewhere nobody empties.
   # BATON_GATE_FAILURE_LOG_ROOT lets a sandboxed lane keep its failure logs inside its own
-  # writable tree (TBX-8731, recovered by TBX-11094); the default is unchanged. The logs go
+  # writable tree; the default is unchanged. The logs go
   # in a gate-failures directory of their own below it, and the pruning below only ever
   # removes dated entries there, so pointing it at a directory that holds anything else
   # cannot delete that.

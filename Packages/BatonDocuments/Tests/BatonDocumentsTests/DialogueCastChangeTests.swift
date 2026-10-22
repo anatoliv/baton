@@ -220,7 +220,7 @@ final class DialogueCastFlowChangeTests: XCTestCase {
     }
 
     /// Every engine's voices for a speaker, and one from another engine stays through an edit
-    /// (TBX-11141: a chapter's clips are converted to one format as it is joined).
+    ///
     func testASpeakerCanHaveAnotherEnginesVoice() throws {
         let offered = ["kokoro:bf_emma", "openai:Ryan", "chatterbox:Emily.wav"]
         XCTAssertEqual(Array(DialogueCastFlow.speakerVoices(narrator: narrator, offered: offered, casting: casting).prefix(3)), offered,

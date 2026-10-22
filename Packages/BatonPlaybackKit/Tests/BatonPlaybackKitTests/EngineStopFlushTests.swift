@@ -104,7 +104,7 @@ final class EngineStopFlushTests: XCTestCase {
     /// `aheadSeconds` staying stale-positive is not cosmetic — it is the input to
     /// `clockTick`'s dry-detection, so while it lies the engine cannot report buffering, and
     /// a stall right after a device change is invisible to the one thing that watches for
-    /// stalls. (§2.5 / TBX-2874)
+    /// stalls. (§2.5)
     func testEngineStopClearsWhatTheDecksThinkIsQueued() throws {
         let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate,
                                    channels: 2, interleaved: false)!

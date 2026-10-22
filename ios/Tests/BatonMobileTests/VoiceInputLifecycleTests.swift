@@ -2,7 +2,7 @@ import SwiftUI
 import XCTest
 @testable import BatonMobile
 
-/// TBX-5350: `VoiceInput` had no `onDisappear` on the friend view and no `deinit`, so
+/// `VoiceInput` had no `onDisappear` on the friend view and no `deinit`, so
 /// switching tabs mid-recording left the microphone, the audio session and the audio-focus
 /// token live — the orange mic dot stayed on and music stayed ducked with nothing on
 /// screen explaining why. A `.denied` state, once entered, never cleared on its own either.

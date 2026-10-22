@@ -22,7 +22,7 @@ public struct ModelSource: Codable, Sendable, Equatable, Hashable {
         /// Anything speaking `/chat/completions`: LiteLLM on the home server, LM Studio, OpenAI.
         case openAICompatible
         case anthropic
-        /// The person's home server, through its book route (`BookCompletion`, TBX-10966). It
+        /// The person's home server, through its book route (`BookCompletion`). It
         /// answers from the gateway's own model only when that model is on the home network, so
         /// it is local whatever address reaches the home server.
         case homeServer

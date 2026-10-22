@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# The source lints in `scripts/test.sh` can actually fail. (TBX-5132)
+# The source lints in `scripts/test.sh` can actually fail.
 #
 # WHY THIS EXISTS. Both lints were written as `grep … | grep -q .` with the violation in
 # the `then` branch. Under the `set -o pipefail` at the top of that file, that shape fails
@@ -70,10 +70,10 @@ done
 expect dirty "$WORK/many-url" "8000 logged URLs are caught (the fail-open case)"
 expect dirty "$WORK/many-subsystem" "8000 foreign subsystems are caught (the fail-open case)"
 
-# 4. W-19, the accessibility lint. It used to be scoped to a list of nine primary-path file
+# 4. An internal task, the accessibility lint. It used to be scoped to a list of nine primary-path file
 #    names, so it could go blocking before the rest of the tree was clean — which meant a
 #    planted violation had to carry one of those names to be caught, and 55 real ones sat
-#    outside it undetected (TBX-5327). Every file is in scope now, so these plant the same
+#    outside it undetected. Every file is in scope now, so these plant the same
 #    violations under names the old allowlist would have ignored.
 mkdir -p "$WORK/icon-multiline" "$WORK/icon-oneline" "$WORK/icon-any-name" "$WORK/icon-labelled" "$WORK/icon-ios-shaped"
 cat > "$WORK/icon-multiline/NowPlayingBar.swift" <<'SWIFT'
@@ -166,7 +166,7 @@ else
   bad "the default (unscoped) run covers both apps and is clean (expected pass, got nonzero)"
 fi
 
-# 6a. Phone UI tests launch with preference sync off (TBX-1000000014): a bare
+# 6a. Phone UI tests launch with preference sync off: a bare
 #     `XCUIApplication()` outside BatonUnderTest.swift fails, through its own override
 #     BATON_UITEST_LINT_SRC, so the planted tree feeds this lint alone.
 expect_uitest() {   # $1 = "clean"|"dirty", $2 = dir, $3 = name
@@ -187,9 +187,9 @@ printf 'import XCTest\nfinal class A: XCTestCase { let app = XCUIApplication.bat
 expect_uitest clean "$WORK/uitest-helper" "the helper and a springboard app are not flagged"
 expect_uitest clean "ios/Tests/BatonMobileUITests" "the real phone UI tests all launch with preference sync off"
 
-# 6. W-20, the Linux-import lint (TBX-5323). It drives the SAME real block via a second
-# override, BATON_IMPORT_LINT_SRC, so a planted tree here does not also feed the W-16/W-18/
-# W-19 lints above (those still read the real app/Sources/Baton, which is clean per case 5).
+# 6. An internal task, the Linux-import lint. It drives the SAME real block via a second
+# override, BATON_IMPORT_LINT_SRC, so a planted tree here does not also feed the an internal task/
+# An internal task lints above (those still read the real app/Sources/Baton, which is clean per case 5).
 run_import_lint_over() {   # $1 = directory to lint
   BATON_IMPORT_LINT_SRC="$1" LINT_ONLY=1 ./scripts/test.sh >/dev/null 2>&1
 }
@@ -243,7 +243,7 @@ do
   expect_import clean "$real_dir" "the real $real_dir is clean of unguarded Linux-missing imports"
 done
 
-# 7. W-21, the prose-dash lint (TBX-5348). Same pattern again: a third override,
+# 7. An internal task, the prose-dash lint. Same pattern again: a third override,
 # BATON_DASH_LINT_SRC, points the REAL block at a planted tree. The cases below are the
 # shapes the grep this replaced could not see, which is the whole reason it is a lexer.
 #
@@ -423,7 +423,7 @@ expect_dash clean "app/Sources" "the real Mac source tree is free of prose dashe
 expect_dash clean "ios/Sources" "the real iPhone source tree is free of prose dashes" "$DASH_ALLOWLIST"
 expect_dash clean "Shared" "the real Shared tree is free of prose dashes" "$DASH_ALLOWLIST"
 
-# TBX-5362 widened the default roots from the two apps to also cover Packages, gateway and
+# An internal task widened the default roots from the two apps to also cover Packages, gateway and
 # watch/Sources: the lexer never looked past app/Sources and ios/Sources, so the Telegram and
 # Discord bot replies in Packages/BatonAgentKit (a user reads every one of those in a chat
 # window) and the gateway's own replies were unguarded. Same two checks as above, over the
@@ -442,7 +442,7 @@ SWIFT
 expect_dash dirty "$WORK/dash-package" "a dash in a package's Sources is caught (the new-roots shape)"
 
 # ...but the SAME package's Tests directory must NOT be, which is the whole reason widening
-# to whole packages (rather than enumerating every Sources/ by hand) was safe: TBX-5362 left
+# to whole packages (rather than enumerating every Sources/ by hand) was safe: an internal task left
 # test fixtures alone, same call AppStoreMetadataTests already made for its own counting, and
 # a package root always carries Tests/ beside Sources/.
 rm "$WORK/dash-package/Sources/BatonExampleKit/ExampleReply.swift"
@@ -459,7 +459,7 @@ else
   bad "the default (unscoped) dash lint covers all six roots and is clean (expected pass, got nonzero)"
 fi
 
-# 8. W-22, the scheme-coverage lint (TBX-5363). BatonSubsonicKitTests shipped and passed
+# 8. An internal task, the scheme-coverage lint. BatonSubsonicKitTests shipped and passed
 # under `swift test` for a full release cycle while the Mac scheme never ran it, because
 # adding the package's test target and adding it to app/project.yml's scheme are two
 # separate steps and nothing forced the second one. Three overrides point the REAL block
@@ -572,8 +572,8 @@ expect_scheme clean "$WORK/scheme-allowed/Packages" "$WORK/scheme-allowed/projec
   "with only the allowlisted package left, the same tree is clean" "$WORK/scheme-allowed.txt"
 
 # The real tree, with the real allowlist, is the shape a merge actually sees: BatonSpeech
-# is the one live exception today (TBX-5354/PR #117 added its test target; the scheme line
-# lands with TBX-5352/PR #116), and the allowlist file is what keeps this clean until then.
+# is the one live exception today (an internal task/PR #117 added its test target; the scheme line
+# lands with an internal task/PR #116), and the allowlist file is what keeps this clean until then.
 expect_scheme clean "Packages" "app/project.yml" \
   "the real Packages/ tree matches the real scheme, modulo the real allowlist" \
   "scripts/test-lint-scheme-allowlist.txt"
@@ -588,7 +588,7 @@ fi
 
 fi
 
-# --- W-23: every gateway build and deploy copies every package the gateway reaches ----------
+# --- Every gateway build and deploy copies every package the gateway reaches ----------
 #
 # The document-clippings merge added BatonDocuments to three of the five places that copy the
 # gateway's sibling packages, and baton-share's image stopped building. Plant a tree whose five

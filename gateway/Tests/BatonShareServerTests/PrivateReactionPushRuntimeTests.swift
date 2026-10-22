@@ -27,7 +27,14 @@ final class PrivateReactionPushRuntimeTests: XCTestCase {
 
     /// Fixed scalar 1 is a public mathematical fixture, never an Apple/owner credential.
     private func fixture() throws -> (URL, PrivateReactionPushConfiguration, Data, Data) {
-        let root = URL(fileURLWithPath: "/private/tmp")
+        // The loader walks every component with O_NOFOLLOW, so the root must be symlink-free:
+        // macOS's /tmp is a link to /private/tmp, and Linux has no /private.
+        #if canImport(Darwin)
+        let temporary = "/private/tmp"
+        #else
+        let temporary = "/tmp"
+        #endif
+        let root = URL(fileURLWithPath: temporary)
             .appendingPathComponent("baton-push-loader-test-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false,
             attributes: [.posixPermissions: 0o700])

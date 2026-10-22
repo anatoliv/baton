@@ -2,7 +2,7 @@ import XCTest
 @testable import BatonPlaybackKit
 
 /// Play on a book fetches the other device's place first, and never waits long for it
-///. Found by the TBX-10974 re-walk: a Mac left in front never pulled, so Play there
+/// Found by the re-walk: a Mac left in front never pulled, so Play there
 /// started from the Mac's own older place while the phone had played on.
 @MainActor
 final class BookPlacePullTests: XCTestCase {

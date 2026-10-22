@@ -86,12 +86,9 @@ final class DocumentInbox {
     static func configuredRelay() -> PendingImportRelay? {
         if let relay = debugRelay() { return relay }
         guard !PreferenceSyncScheduler.isSwitchedOff() else { return nil }
-        let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "").trimmingCharacters(in: .whitespaces)
-        let token = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "").trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil,
-              // Never the token over plain HTTP to an address off the home network (TBX-1000000505 B-9).
-              GatewayAddress.allowsBearer(to: url, isPrivate: RemoteNaturalLanguage.isPrivate) else { return nil }
-        return PendingImportRelay(files: GatewayFiles(gatewayURL: url, token: token))
+        // Never the token over plain HTTP to an address off the home network.
+        guard let gateway = BearerGateway.configured() else { return nil }
+        return PendingImportRelay(files: GatewayFiles(gatewayURL: gateway.url, token: gateway.token))
     }
 
     /// DEBUG only, and nil in a release build: a probe's own relay, so the "Sent from" sheet and

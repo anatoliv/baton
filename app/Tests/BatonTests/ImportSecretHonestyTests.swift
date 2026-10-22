@@ -4,7 +4,7 @@ import BatonSubsonicKit
 @testable import Baton
 
 /// An import reports the secrets that are actually stored, not the ones it was handed
-///.
+///
 ///
 /// The sheet could say "Imported 8 settings and 1 secret" and, in the same breath, that
 /// there was nothing to connection-test — because the friend was not configured without the
@@ -86,7 +86,7 @@ final class ImportSecretHonestyTests: XCTestCase {
         XCTAssertFalse(NavidromeKeychain.setSecret("value", account: "baton.agent.apiKey"))
     }
 
-    /// The Mac's Import... alert said "imported" over a partial import (TBX-1000000480 X-4).
+    /// The Mac's Import... alert said "imported" over a partial import.
     func testTheMacSummaryNamesTheAccountsThatWereNotSaved() {
         let partial = SettingsTransfer.ImportResult(preferenceCount: 8, secretCount: 1, secretsRefused: 2,
                                                     documentCount: 0, appVersion: nil)

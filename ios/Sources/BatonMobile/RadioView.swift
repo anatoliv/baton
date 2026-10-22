@@ -90,7 +90,7 @@ struct RadioView: View {
             VStack(alignment: .leading, spacing: 0) {
                 if let station = model.radio.onAirStation {
                     // Drawn directly, not inside a fixed-height List: the 86 pt list cut the
-                    // banner's Pause and Stop buttons in half (seen in the TBX-11066 walk).
+                    // banner's Pause and Stop buttons in half (seen in the walk).
                     onAirContent(station)
                         .padding(.horizontal)
                         .padding(.bottom, 12)

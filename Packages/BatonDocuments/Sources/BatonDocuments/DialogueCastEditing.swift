@@ -139,7 +139,7 @@ extension DialogueCast {
 
         /// Name → voice for the speakers read in a voice of their own: not the narrator, with a
         /// voice chosen. Any engine's: a chapter whose voices answer in different audio formats is
-        /// converted to one as it is joined (`WAV.converting`, TBX-11141).
+        /// converted to one as it is joined (`WAV.converting`).
         public func voices(narrator: String) -> [String: String] {
             var out: [String: String] = [:]
             for s in speakers where !s.isNarrator {

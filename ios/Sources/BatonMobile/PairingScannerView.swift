@@ -29,7 +29,7 @@ struct PairingScannerView: View {
 
         /// Whether a code from the camera is tried now. After a failure the scanner keeps
         /// looking, so a second code (or the same one, once the network is back) can be tried
-        /// without Cancel and a fresh sheet (TBX-1000000505 B-4).
+        /// without Cancel and a fresh sheet.
         var acceptsScan: Bool {
             switch self {
             case .scanning, .failed: true
@@ -187,7 +187,7 @@ final class ScannerViewController: UIViewController, @preconcurrency AVCaptureMe
         // privacy smell — the indicator would stay lit. Queued unconditionally: a sheet
         // dismissed quickly can leave before the queued `startRunning()` has run, when
         // `isRunning` is still false, and the serial queue stops it after it starts
-        // (TBX-1000000505 B-20).
+        //
         sessionQueue.async { [session] in session.stopRunning() }
     }
 
@@ -228,7 +228,7 @@ final class ScannerViewController: UIViewController, @preconcurrency AVCaptureMe
 
 /// Which camera frames become attempts. The camera fires many frames a second, so one code is
 /// one attempt; but it was one attempt *ever*, and after a bad code or a failed redeem the
-/// scanner sat dead until Cancel (TBX-1000000505 B-4). Now a different code is tried at once,
+/// scanner sat dead until Cancel. Now a different code is tried at once,
 /// and the same one again after `repeatAfter`, which is how a redeem that failed on the network
 /// gets its second try while the phone is still pointed at it.
 struct ScanGate {

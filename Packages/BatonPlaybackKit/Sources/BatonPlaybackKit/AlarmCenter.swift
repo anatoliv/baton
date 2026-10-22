@@ -95,7 +95,7 @@ public final class AlarmClock {
 
 /// What happens when an alarm or timer goes off, on either app: the chosen item plays, the
 /// Clock-style ringing state is up for Stop, Snooze or Keep Playing, and a late one is shown as
-/// missed instead (TBX-11171, specs/alarm-and-timer.md).
+/// missed instead.
 @MainActor
 @Observable
 public final class AlarmCenter {
@@ -127,7 +127,7 @@ public final class AlarmCenter {
     /// Starts a gentle alarm's rise on the station just tuned in.
     @ObservationIgnored public var rampRadio: (@MainActor () -> Void)?
     /// Brings the full Now Playing player forward: the ringing's "Keep playing, open player"
-    ///. The phone closes whatever sheet is up first; the Mac fronts its window.
+    /// The phone closes whatever sheet is up first; the Mac fronts its window.
     @ObservationIgnored public var showPlayer: (@MainActor () -> Void)?
 
     /// The alarm or timer going off now, for the ringing screen.
@@ -372,7 +372,7 @@ public final class AlarmCenter {
     }
 }
 
-/// What a system sync does with the alarms the system already holds (TBX-11171 review): a pure
+/// What a system sync does with the alarms the system already holds: a pure
 /// decision, so the rule that matters most is tested without AlarmKit.
 ///
 /// Baton runs `sync` at every launch, background launches included (a book refresh, an alarm's

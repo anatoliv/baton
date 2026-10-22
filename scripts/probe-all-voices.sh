@@ -1,5 +1,5 @@
 #!/bin/bash
-# Every voice in the Mac's voice picker (TBX-11028), on a probe instance, never the owner's Baton:
+# Every voice in the Mac's voice picker, on a probe instance, never the owner's Baton:
 #
 #   scripts/probe-all-voices.sh <Baton.app> <evidence-dir> <built-in-model-dir>
 #

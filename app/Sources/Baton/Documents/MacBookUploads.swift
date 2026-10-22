@@ -5,7 +5,7 @@ import Foundation
 import OSLog
 
 /// Books this Mac makes with its own voices, sent to the Baton server so the iPhone has them too
-///. Before this, a book made on This Mac never left it: the iPhone adopts books from
+/// Before this, a book made on This Mac never left it: the iPhone adopts books from
 /// the Baton server's listing, and a book made here was never on it.
 ///
 /// Each book goes up as it is made: its shaped book first, then each chapter's read-along timing
@@ -59,7 +59,7 @@ final class MacBookUploads {
     private let retry: Retry
 
     /// Told a book's job id once the Baton server has taken its shaped book, so whatever else
-    /// belongs to the book (its cover, TBX-11064) can follow it there at once.
+    /// belongs to the book (its cover) can follow it there at once.
     var onAccepted: ((String) -> Void)?
 
     private var running = false
@@ -151,7 +151,7 @@ final class MacBookUploads {
         }
     }
 
-    // MARK: - Delete rules (TBX-10985's, applied to a book made here)
+    // MARK: - Delete rules
 
     /// Remove from This Mac: the Baton server keeps its copy for the other devices, nothing more
     /// of the book is sent, and this Mac does not adopt that copy back from the listing.
@@ -225,7 +225,7 @@ final class MacBookUploads {
         reopenFinishedTooEarly()
     }
 
-    /// A book a build before TBX-11088 marked done with chapters still to send (the round ran
+    /// A book a build before an internal task marked done with chapters still to send (the round ran
     /// before its chapters reached Clippings) goes up again: the Baton server kept it with those
     /// chapters queued and the iPhone waited for them for ever. Only a book finished
     /// without a reason, still made here, and with a chapter on this Mac that never went up; a
@@ -272,7 +272,7 @@ final class MacBookUploads {
     /// Whether nothing of `job` is left to send: it is made, and every chapter it made is either
     /// on this Mac and sent, or was removed from this Mac on purpose (Remove Download). A chapter
     /// made but not yet moved into Clippings still has its audio in the job's folder, which
-    /// adoption empties; it is still to send, not removed (TBX-11088: a round between the job
+    /// adoption empties; it is still to send, not removed (a round between the job
     /// becoming ready and `DocumentLibrary.refresh` adopting its chapters saw none of them
     /// present, and finished the book with no chapter sent).
     private func isAllSent(_ job: BookJob, sent: [Int]) -> Bool {

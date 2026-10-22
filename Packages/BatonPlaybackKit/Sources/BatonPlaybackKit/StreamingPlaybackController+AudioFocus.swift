@@ -2,7 +2,7 @@ import Foundation
 import BatonSubsonicKit
 import BatonSubsonicModels
 
-/// Audio-focus coordination, extracted from `StreamingPlaybackController` as a 
+/// Audio-focus coordination, extracted from `StreamingPlaybackController` as an internal task
 /// decomposition step: owner-token capture so an assistant/recording can pause or duck the music
 /// and have it restored, last-writer-wins between owners, generation-guarded auto-resume (a manual
 /// transport change cancels it), the capture-shim wrappers, and crash recovery of a stranded duck

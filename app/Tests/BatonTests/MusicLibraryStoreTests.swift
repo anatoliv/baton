@@ -51,7 +51,7 @@ final class MusicLibraryStoreTests: XCTestCase {
         )
     }
 
-    ///  / PROD-02: the Albums tab pages past the 500-per-request Subsonic cap instead of
+    /// The Albums tab pages past the 500-per-request Subsonic cap instead of
     /// silently showing an arbitrary 500-album subset.
     func testLoadAlbumsPagesBeyond500() async {
         NavidromeMockURLProtocol.handler = { req in
@@ -75,9 +75,9 @@ final class MusicLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.albums.count, 700, "should page past the 500 cap")
     }
 
-    ///  fixture: a generated large library (10k albums across 20 pages) proves the paging path
+    /// An internal task fixture: a generated large library (10k albums across 20 pages) proves the paging path
     /// handles real-world scale — every page is fetched and assembled, not truncated. Pairs with
-    /// the  pagination it exercises.
+    /// the pagination it exercises.
     func testLoadsLargeGeneratedLibraryAcrossManyPages() async {
         let total = 10_000
         NavidromeMockURLProtocol.handler = { req in
@@ -100,7 +100,7 @@ final class MusicLibraryStoreTests: XCTestCase {
         XCTAssertEqual(store.albums.count, total, "the full 10k-album library must load across all pages")
     }
 
-    ///  / PROD-13: switching servers must drop the previous server's browse results (Subsonic
+    /// Switching servers must drop the previous server's browse results (Subsonic
     /// ids are per-server) instead of showing them against the new connection.
     func testResetForServerChangeDropsPreviousServerLibrary() async {
         NavidromeMockURLProtocol.handler = { req in
@@ -191,7 +191,7 @@ final class MusicLibraryStoreTests: XCTestCase {
 
     /// A UI delete goes through the store and never reloads playlists, so it has to tell the
     /// MCP name cache itself, or the deleted playlist's id keeps resolving for up to 30 seconds
-    /// (TBX-1000000480 A-9).
+    ///
     func testDeletePlaylistDropsAStaleCachedName() async {
         let library = store()
         library.playlistsChanged = { PlaylistIDCache.shared.reset() } // as MusicModel wires it

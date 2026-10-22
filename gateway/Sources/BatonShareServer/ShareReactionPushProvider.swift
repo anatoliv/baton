@@ -91,6 +91,9 @@ actor APNsReactionPushProvider: ReactionPushProvider {
 /// Ephemeral TLS-default URLSession, no cookies/cache, redirects denied, bounded streaming
 /// body and per-attempt resource deadline. Completion arrives only after I/O has settled.
 /// FoundationNetworking may not supply h2 metrics: absence fails closed, never counts success.
+/// On Linux it never does (D-17), so every answer there is a retry. Before APNs is activated on
+/// the Linux service, add a second `APNsTransport` built on AsyncHTTPClient, which negotiates h2
+/// by ALPN and reports `HTTPClientResponse.version`, with a Linux test.
 struct URLSessionAPNsTransport: APNsTransport {
     // Only synthetic test protocols inject here; production always uses the default TLS stack.
     let protocolClass: URLProtocol.Type?
@@ -122,6 +125,10 @@ private final class APNsSessionAttempt: NSObject, URLSessionDataDelegate, @unche
     private var bytes = Data()
     private var status: Int?
     private var http2 = false
+    // Set when the answer is refused for size. The cancel that follows is a request, not a
+    // result: corelibs URLSession on Linux can still complete the task without an error, so
+    // the refusal itself settles the attempt as a failure.
+    private var refused = false
     init(timeout: TimeInterval, protocolClass: URLProtocol.Type?) {
         self.timeout = timeout; self.protocolClass = protocolClass
     }
@@ -162,11 +169,11 @@ private final class APNsSessionAttempt: NSObject, URLSessionDataDelegate, @unche
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void) {
         guard let response = response as? HTTPURLResponse,
-              response.expectedContentLength <= 4096 else { completionHandler(.cancel); return }
+              response.expectedContentLength <= 4096 else { refused = true; completionHandler(.cancel); return }
         status = response.statusCode; completionHandler(.allow)
     }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard data.count <= 4096 - bytes.count else { dataTask.cancel(); return }
+        guard !refused, data.count <= 4096 - bytes.count else { refused = true; dataTask.cancel(); return }
         bytes.append(data)
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
@@ -178,7 +185,7 @@ private final class APNsSessionAttempt: NSObject, URLSessionDataDelegate, @unche
         self.task = nil; self.session = nil
         lock.unlock()
         session.finishTasksAndInvalidate()
-        if error != nil || status == nil { continuation?.resume(throwing: APNsProviderFailure.transport) }
+        if error != nil || status == nil || refused { continuation?.resume(throwing: APNsProviderFailure.transport) }
         else { continuation?.resume(returning: APNsResponse(status: status!, body: bytes, negotiatedHTTP2: http2)) }
     }
 }

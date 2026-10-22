@@ -59,7 +59,7 @@ public enum NavidromeKeychain {
     /// type a password, the other tells them typing it again will not help because the
     /// Keychain is locked. Collapsing them is what made a locked Keychain present as an app
     /// that "did not start properly", with the reason sitting in `os_log` where nobody looks
-    ///.
+    ///
     ///
     /// `status` is `Int32` rather than `OSStatus` so this type still compiles on Linux, where
     /// there is no Security framework and `unreadable` never occurs.
@@ -182,7 +182,7 @@ public enum NavidromeKeychain {
     /// import could report "1 secret" over a Keychain that had rejected the write — and the
     /// same sheet would then say there was nothing to test, because the friend was not
     /// configured without it. Two true statements that together describe something false
-    ///.
+    ///
     ///
     /// `@discardableResult` because most callers are writing a value the user just typed on
     /// a screen that will show them the outcome anyway; the ones that report a count are the
@@ -197,7 +197,7 @@ public enum NavidromeKeychain {
             stored = write(Data(value.utf8), account: account)
         }
         // Only drop the legacy plaintext copy once the Keychain actually holds the value.
-        // This is the same bug TBX-5268 fixed on the read path: on a device still holding a
+        // This is the same bug an internal task fixed on the read path: on a device still holding a
         // legacy value, a write refused under errSecInteractionNotAllowed used to remove the
         // only surviving copy of the credential. The type's own header promises otherwise.
         if stored { BatonStorage.defaults.removeObject(forKey: account) }

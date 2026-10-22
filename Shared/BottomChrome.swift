@@ -18,9 +18,9 @@ public enum BottomChrome {
     /// `tabViewBottomAccessory` (`RootTabView.swift`) as `.systemAccessory`, and that
     /// branch never calls `bottomChromeCapsule()` — the system draws the container and
     /// owns its inset. There is no public API that reports the accessory's inset; the slot
-    /// was measured at 21pt (`systemAccessoryInset`, TBX-1000000140), and on an iPhone with
+    /// was measured at 21pt (`systemAccessoryInset`), and on an iPhone with
     /// iOS 26 the Friend composer and the alarm pill take that through `floatingInset`
-    ///, not this constant. Until then this 20pt was an eyeball match there.
+    /// not this constant. Until then this 20pt was an eyeball match there.
     ///
     /// Where it genuinely aligns two things is the `.standalone` path — iPad, and iOS 18
     /// through 25 — where the mini player draws its own capsule through the same modifier.

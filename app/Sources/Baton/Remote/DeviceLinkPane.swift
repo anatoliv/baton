@@ -233,7 +233,7 @@ struct DeviceLinkPane: View {
     }
 }
 
-/// The pane's Allow/Refuse prompt, as the one place its answer is given (TBX-1000000504, A-10).
+/// The pane's Allow/Refuse prompt, as the one place its answer is given.
 ///
 /// The pane used to keep the continuation in view state and drop it, unanswered, whenever it
 /// showed a new code or went away. Swift then logged a leaked continuation and the host's approval

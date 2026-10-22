@@ -5,7 +5,7 @@ import Foundation
 /// the voices live, how task categories map to them, how a summary is delivered) and the ASR side
 /// (track transcription — where Whisper lives and whether it may be used at all).
 ///
-/// Third leaf of the  module-boundary split (after BatonDSP + BatonSubsonicModels): the
+/// Third leaf of the module-boundary split (after BatonDSP + BatonSubsonicModels): the
 /// speech config + service layer, extracted so it has no dependency on the app. The playback
 /// engine + notifier stay in the app (they tie into MusicModel); this is the pure part.
 ///

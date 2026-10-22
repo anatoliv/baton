@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// TBX-1000000485: what every Mac "Share…" on an album, a playlist or a song selection hands
+/// What every Mac "Share…" on an album, a playlist or a song selection hands
 /// `ShareCollectionSheet`. The songs go in display order when the view has them, else nil so
 /// the sheet loads them; a selection shares only server songs and needs two of them.
 @MainActor

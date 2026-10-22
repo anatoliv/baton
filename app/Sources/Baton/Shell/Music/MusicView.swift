@@ -423,7 +423,7 @@ struct MusicView: View {
                     path = NavigationPath()
                     router.pendingTab = nil
                 }
-                // A document sent from the iPhone ("Send to my Mac", TBX-10871) opens in
+                // A document sent from the iPhone ("Send to my Mac") opens in
                 // Books' import sheet, so arriving brings Books forward.
                 .onChange(of: model.documentsSwitch.isOn ? model.documentInbox.arrivals : 0) { old, new in
                     guard new > old else { return }

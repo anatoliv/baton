@@ -17,7 +17,7 @@ import XCTest
 extension HealthProbe.Report {
     /// Navidrome answered, quickly.
     static let healthy = HealthProbe.Report(outcome: .answered, elapsed: 0.084, timeout: 2)
-    /// Navidrome said nothing at all inside the bound — the state TBX-5069 is about.
+    /// Navidrome said nothing at all inside the bound — the state an internal task is about.
     static let silent = HealthProbe.Report(outcome: .timedOut, elapsed: 2.001, timeout: 2)
 }
 
@@ -112,13 +112,13 @@ final class GatewayHealthTests: XCTestCase {
                              "the counters still hold the history — recency is the separate signal")
     }
 
-    // MARK: - The signal TBX-4029 needs
+    // MARK: - The signal an internal task needs
 
     /// `peak_waiters_parked` is what makes `grep -c MISUSE` → 0 mean something.
     ///
     /// The leak needed **two waiters parked at the same time**; with one it cannot fire at all.
     /// So a peak of 1 turns that zero into "never tested", and a peak of 2 turns it into a pass.
-    /// The 2026-09-05 audit had no way to tell those apart, which is why TBX-4029 was reopened.
+    /// The 2026-09-05 audit had no way to tell those apart, which is why an internal task was reopened.
     func testPeakWaitersDistinguishesNeverTestedFromSurvivedTheTwoDeviceCase() async throws {
         let sequential = DeviceLink()
         let overlapping = DeviceLink()
@@ -196,7 +196,7 @@ final class GatewayHealthTests: XCTestCase {
     /// A command that arrives with nobody parked is queued and handed to the next poll — that
     /// path returns from a different branch of `awaitCommand`, and must still be counted.
     ///
-    /// **The timing is explicit now** (TBX-5308, S-F12). This test used to let the second dispatch
+    /// **The timing is explicit now**. This test used to let the second dispatch
     /// expire and then collect its command anyway, which is the defect that card is about: a
     /// command nobody is waiting for is dropped rather than played a minute later. So the dispatch
     /// is left running while the poll collects it, which is the case the counter is really about.
@@ -280,7 +280,7 @@ final class GatewayHealthTests: XCTestCase {
     /// Navidrome's reachability is what `/health` said before this card, and it still says it —
     /// the same two strings, so anything already reading `status` keeps working. What changed is
     /// that they are now *derived* from the probe rather than computed beside it in the route
-    ///, which is what makes the headline and the detail unable to disagree.
+    /// which is what makes the headline and the detail unable to disagree.
     func testTheExistingStatusStringsAreUnchangedAndComeFromTheProbe() throws {
         let polls = DeviceLink.PollStats(pollsServed: 0, commandsDelivered: 0, waitersParked: 0,
                                          peakWaitersParked: 0, lastPollAt: nil, isDeviceConnected: false)

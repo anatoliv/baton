@@ -51,7 +51,7 @@ class UITestRunnerTests(unittest.TestCase):
                                   text=True,capture_output=True,timeout=15)
             args=json.loads((root/'argv.json').read_text())
             self.assertEqual(args[args.index('-collect-test-diagnostics')+1],'never')
-            # The first-launch primer leads every -only run (TBX-1000000045).
+            # The first-launch primer leads every -only run.
             self.assertEqual([arg for arg in args if arg.startswith('-only-testing:')],
                              expected_only or [self.PRIMER,'-only-testing:SuiteA','-only-testing:SuiteB'])
             self.assertFalse(any(arg.startswith('-skip-testing:') for arg in args))

@@ -20,7 +20,7 @@ enum BiometricGate {
     /// Environment key that satisfies the gate in DEBUG builds, for UI tests and simulator
     /// runs. Never compiled into release.
     ///
-    /// Was a bare `-uitestBypassBiometrics` launch argument. TBX-5336:
+    /// Was a bare `-uitestBypassBiometrics` launch argument. An internal task:
     /// `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch in
     /// four, so every UI test now sets this through `app.launchEnvironment` instead, read here
     /// via `ProcessInfo.processInfo.environment`.

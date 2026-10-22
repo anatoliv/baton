@@ -2,7 +2,7 @@ import XCTest
 
 /// Saving an alarm and starting a timer with the system path on (AlarmKit on iOS 26 and later,
 /// notifications before), so Baton cuts the chosen track's clip into `Library/Sounds`
-/// (TBX-1000000410, specs/alarm-and-timer.md). The clip itself is read from outside the app
+/// The clip itself is read from outside the app
 /// afterwards (`simctl get_app_container … data`, then `afinfo`), which a UI test cannot do.
 ///
 /// Evidence, not a gate: it answers the system's own permission prompt and leaves an alarm eight

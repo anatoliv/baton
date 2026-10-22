@@ -40,7 +40,7 @@ case "$ZIP" in *.zip) ;; *) echo "refusing: $ZIP is not a .zip archive" >&2; exi
 
 # One helper for every remote command that needs privilege, so there is exactly one
 # place where the invocation form can be got wrong: systemd-run as the crashbox account,
-# never plain sudo (TBX-1000000503 F-16), and with Python told not to write bytecode.
+# never plain sudo, and with Python told not to write bytecode.
 crashbox_exec() {
   # shellcheck disable=SC2029  # the command is built here on purpose
   ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST" \
@@ -52,7 +52,10 @@ crashbox_exec() {
 crashbox_run() { crashbox_exec "$VENV/$*"; }
 # Bytecode in the release tree, counted as crashbox. Checked BEFORE the first Crashbox
 # command as well as after: a tree that already holds .pyc files stops the verifier from
-# starting the units, and this script does not remove them; that is the owner's host action.
+# starting the units. This script only checks and never removes them (owner decision
+# 2026-10-22): Crashbox's release assembly strips bytecode and its units run
+# with PYTHONDONTWRITEBYTECODE=1, so a .pyc here means something ran outside systemd-run,
+# and clearing it is the Crashbox owner's host action (D10).
 pyc_count() { crashbox_exec "/usr/bin/find /opt/crashbox/current/ -name '*.pyc'" | wc -l | tr -d ' '; }
 
 SIZE="$(stat -f%z "$ZIP" 2>/dev/null || stat -c%s "$ZIP")"
@@ -80,7 +83,8 @@ if ! PYC_BEFORE="$(pyc_count)"; then
 fi
 if [ "$PYC_BEFORE" != 0 ]; then
   echo "refusing: /opt/crashbox/current already holds $PYC_BEFORE .pyc file(s); nothing was run." >&2
-  echo "  Removing them is a Crashbox host action for its owner (D10); upload once the tree is clean." >&2
+  echo "  Something ran in that tree outside systemd-run. Tell the Crashbox owner (D10), who clears it;" >&2
+  echo "  upload once the tree is clean. This script never deletes on the host." >&2
   exit 1
 fi
 
@@ -93,7 +97,7 @@ esac
 echo "  project $SLUG -> $PROJECT_ID"
 
 # A fresh directory of our own rather than a predictable name in /tmp, which anyone on the
-# host could have created first, as a file or as a symlink (TBX-1000000503 F-16). mktemp makes
+# host could have created first, as a file or as a symlink. mktemp makes
 # it 0700; it opens to 0711 (traverse, no listing) only once the archive is inside, because the
 # upload runs as crashbox and has to read the file. Both go straight afterwards.
 # shellcheck disable=SC2029  # the parent is expanded here on purpose
@@ -120,7 +124,7 @@ fi
 # testflight.sh read to decide whether their DONE line says "uploaded" or "NOT
 # uploaded". Without it a release has no way to tell the two apart and says nothing,
 # which is how the last dSYM went stale. Written BEFORE the bytecode count below: Crashbox
-# has accepted the archive, and a count that fails must not lose that (TBX-1000000503 F-16).
+# has accepted the archive, and a count that fails must not lose that.
 printf '%s\n' "$RECEIPT" > "$ZIP.receipt.json"
 
 # The release tree must be exactly as clean as it was before this ran.

@@ -6,7 +6,7 @@ import Foundation
 import Testing
 @testable import Baton
 
-/// The Mac review's dead ends (`docs/reviews/2026-09-08/mac-app.md`, findings F2 to F18).
+/// The Mac review's dead ends (the 2026-09-08 Mac app review, findings F2 to F18).
 ///
 /// Every one of these was a screen that told the user something untrue, or a control that did
 /// nothing, and every one type-checked perfectly. Several are guarded here by reading the
@@ -240,7 +240,7 @@ struct MacDeadEndTests {
 
     // MARK: - F17. Everything started at launch is stopped at quit
 
-    /// TBX-5324 moved the whole launch-time composition root (this scheduler included) off
+    /// An internal task moved the whole launch-time composition root (this scheduler included) off
     /// the main window's `.task` and into `BatonAppDelegate`, an `NSApplicationDelegate`.
     /// See that type's doc comment for why. Teardown moved with it: `applicationWillTerminate` is
     /// the delegate's own quit hook, so this no longer reads for a `NotificationCenter`

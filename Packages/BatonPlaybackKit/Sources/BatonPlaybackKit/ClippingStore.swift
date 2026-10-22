@@ -322,7 +322,7 @@ public final class ClippingStore {
     }
 
     /// Give a clipping other audio and keep everything else about it: its id, its title, its
-    /// words, its chapter and when it was last played (Change Voice, TBX-10989). One row before
+    /// words, its chapter and when it was last played (Change Voice). One row before
     /// and after, never a second one beside it.
     ///
     /// The new file takes the old one's place, **moved** in like `adopt`, under the same name
@@ -543,7 +543,7 @@ public final class ClippingStore {
     ///
     /// The ledger write is what makes this travel. Without it the sidecar changes here and the
     /// phone keeps the old title for ever, which is the defect this whole mechanism exists for
-    ///. A clipping that never reached the gateway has no digest and so nothing to
+    /// A clipping that never reached the gateway has no digest and so nothing to
     /// say — it is local by definition.
     public func rename(id: String, to title: String, at now: Date = Date()) {
         guard var item = item(id: id) else { return }

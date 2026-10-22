@@ -5,17 +5,17 @@ import XCTest
 /// The real `PairingHost` (Mac) talking to the real `PairingClient` (phone), both in this
 /// process, over loopback.
 ///
-/// Found while working TBX-5151: `PairingHostLiveTests` already proved the listener side
+/// Found while working an internal task: `PairingHostLiveTests` already proved the listener side
 /// reaches `.advertising` in-process, and `PairingTransportReadTests` proved the client side
 /// reads a full payload from a loopback socket that stands in for the host. What neither did
 /// is run the two halves against each other — which turns out to work fine in-process, once
 /// the client is the thing making the connection rather than a bespoke `NWListener` server
 /// standing in for one (see the comment on `PairingTransportReadTests.serve`). So this closes
-/// the specific gap those two left: it is the transport half of TBX-3846's fix, proven with
+/// the specific gap those two left: it is the transport half of an internal task fix, proven with
 /// the genuine production types on both ends rather than a substitute for either.
 ///
 /// **What this does not prove**, because none of it is reachable without hardware, and this
-/// is exactly the residual TBX-5151 is tracking: LAN reachability across two real devices
+/// is exactly the residual an internal task is tracking: LAN reachability across two real devices
 /// (this binds `127.0.0.1`, not a LAN interface), the QR scan itself, the SwiftUI sheet swap
 /// in `MacTransferView`/`PairingScannerView`, and the real encrypted `SettingsTransfer`
 /// payload end to end (the payload here is a stub, to isolate the socket behaviour from the
@@ -39,7 +39,7 @@ final class PairingHostClientLoopbackTests: XCTestCase {
     }
 
     /// 512 KB is many TCP segments — the exact shape the old `minimumIncompleteLength: 1`
-    /// read truncated to whatever arrived in the first one. This is the regression TBX-3846
+    /// read truncated to whatever arrived in the first one. This is the regression an internal task
     /// fixed, run here against the real host rather than a stand-in server.
     func testALargePayloadArrivesWholeWithNoShortRead() async throws {
         let host = PairingHost()
@@ -70,7 +70,7 @@ final class PairingHostClientLoopbackTests: XCTestCase {
     /// The prompt goes unanswered and the owner closes the pane (or the code expires): stopping
     /// the host must end the attempt there and then. Before, the host stayed suspended on the
     /// approval with the device's socket open, and the phone sat until its own 20-second
-    /// deadline (TBX-1000000480 A-10).
+    /// deadline.
     func testStoppingDuringAnUnansweredApprovalClosesTheConnection() async throws {
         let host = PairingHost()
         defer { host.stop() }
@@ -138,7 +138,7 @@ final class PairingHostClientLoopbackTests: XCTestCase {
     /// The buffer is written from the receive callback and read from the timeout block, on
     /// two different queues. Before the lock, that was an unsynchronised read of a `Data`
     /// being reallocated: a torn or short payload that fails to parse, which looks exactly
-    /// like the short read TBX-3846 fixed and would be chased the same wrong way (S-F27).
+    /// like the short read an internal task fixed and would be chased the same wrong way (S-F27).
     ///
     /// Driven directly rather than through a socket because a race needs to be provoked,
     /// not waited for: the real receive callbacks are serialised by the connection's queue,

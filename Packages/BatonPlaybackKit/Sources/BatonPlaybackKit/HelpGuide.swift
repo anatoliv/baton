@@ -51,7 +51,7 @@ public enum HelpGuide {
 
     /// HELP.md's "The two servers Baton uses": what the music server and the Baton server each
     /// do. Both apps link to it from Settings, so it lives here rather than in either app
-    ///. `HelpGuideTests` checks it resolves in the guides the apps ship.
+    /// `HelpGuideTests` checks it resolves in the guides the apps ship.
     public static let twoServersTopic = "the-two-servers-baton-uses"
 
     /// One `##`/`###`-delimited section: a single entry in the contents.

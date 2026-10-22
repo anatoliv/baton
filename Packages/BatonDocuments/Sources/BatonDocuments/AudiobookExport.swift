@@ -30,7 +30,7 @@ public enum AudiobookExport {
     }
 
     /// The same marks placed on each chapter's length as it is joined, not as it was rendered
-    ///. An AAC chapter carries its encoder priming and end padding, so its packets
+    /// An AAC chapter carries its encoder priming and end padding, so its packets
     /// run a little longer than its words; stream-copied end to end, chapter k begins at the sum
     /// of the earlier chapters' packet durations. Placed on the rendered lengths the marks fall
     /// progressively early. Unchanged when the counts differ, which is the caller's mistake.

@@ -1,6 +1,6 @@
 import XCTest
 
-/// The real path of an alarm on iOS 26 and later (TBX-11171, specs/alarm-and-timer.md): Baton
+/// The real path of an alarm on iOS 26 and later: Baton
 /// sets an AlarmKit alarm a minute or so ahead, goes to the background, the system rings it, and
 /// Play on the system's alert opens Baton playing the chosen track.
 ///

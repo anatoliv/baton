@@ -4,7 +4,7 @@ import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
-/// The listen archive against real files rather than values built in the test (S-F14 / TBX-5354).
+/// The listen archive against real files rather than values built in the test (S-F14).
 ///
 /// The card asked for `ListenArchiveIO` to move onto `VersionedStore` last, because the archive
 /// is the thing a person would most notice losing. `ListenArchiveIO` turns out to write no file

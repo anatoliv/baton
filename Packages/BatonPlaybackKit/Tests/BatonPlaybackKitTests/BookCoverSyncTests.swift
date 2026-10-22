@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import BatonPlaybackKit
 
-/// Covers settled with the home server while the listener keeps choosing (TBX-11064 acceptance
+/// Covers settled with the home server while the listener keeps choosing (acceptance
 /// review): a cover chosen during an upload still goes up, a pick made during a download is kept,
 /// and a sync asked for while one runs makes the running one go round again.
 @MainActor

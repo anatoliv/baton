@@ -1,7 +1,7 @@
 import XCTest
 
 /// Voice the dialogue on the phone against a real home server and a real voice server
-///: a two-chapter book imported with the switch on, its cast proposed by the home
+/// a two-chapter book imported with the switch on, its cast proposed by the home
 /// server's model, checked and used, the lines placed, and the book made with a voice per
 /// character; then Change Voice… turns the cast off and the book is made again with one narrator.
 ///

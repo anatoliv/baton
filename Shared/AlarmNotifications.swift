@@ -5,7 +5,7 @@ import UserNotifications
 
 private let alarmNotificationLog = Logger(subsystem: "io.tonebox.baton", category: "alarm-notifications")
 
-/// Alarms and the timer as scheduled local notifications (TBX-11171, specs/alarm-and-timer.md):
+/// Alarms and the timer as scheduled local notifications:
 /// the iPhone's way on iOS 18 to 25, and the Mac's way when Baton is not running.
 ///
 /// A notification is a sound and a banner, once, at most 30 seconds of sound. Tapping it, or

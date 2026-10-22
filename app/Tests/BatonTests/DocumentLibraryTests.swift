@@ -121,7 +121,7 @@ final class DocumentLibraryTests: XCTestCase {
         XCTAssertEqual(library.jobs.first?.summary.status, .ready)
     }
 
-    /// TBX-10960: a chapter made on this Mac goes into Clippings with its read-along timing, by
+    /// A chapter made on this Mac goes into Clippings with its read-along timing, by
     /// the audio's digest, and the timing fits the chapter's audio and words.
     func testAChapterMadeHereKeepsItsReadAlongTiming() async throws {
         let clippings = clippingStore()
@@ -411,7 +411,7 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
                         gateway: { GatewayBookClient(baseURL: URL(string: "http://gateway.test:8788")!, token: "t") { fake.answer($0) } })
     }
 
-    /// TBX-1000000570: the fake takes a book made on this Mac as the home server does: the whole
+    /// The fake takes a book made on this Mac as the home server does: the whole
     /// book through `/upload`, then each chapter's audio and its read-along timing, which it must
     /// not read as a whole book. A Mac-made book sends them in the background, and one that landed
     /// before its test ended used to trap the test host.
@@ -433,7 +433,7 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
                                    "PUT /v1/books/\(id)/chapters/1/timing"])
     }
 
-    /// TBX-10954: after a relaunch, a book made on the home server counts as removable only once
+    /// After a relaunch, a book made on the home server counts as removable only once
     /// the home server has answered about it, which can be after Clippings first asks for the
     /// weekly suggestion. Asking that early makes none and leaves the week unspent, and
     /// `removableBookIDs`, which Clippings watches, changes when the answer lands, so asking
@@ -466,7 +466,7 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
                        "asking again returns the same suggestion rather than a new one")
     }
 
-    /// TBX-10959: the storage rules run in `start()`, before the home server has answered after a
+    /// The storage rules run in `start()`, before the home server has answered after a
     /// relaunch, when a book made there has no job and so looks unable to come back. They run
     /// again once the answer arrives, so a book finished 8 days ago under "After 7 days" loses its
     /// download then rather than at the next time something applies the rules.
@@ -533,7 +533,7 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
         XCTAssertEqual(row.storedText, "On this Mac", "every chapter has come down")
     }
 
-    /// TBX-10960: a chapter's read-along timing comes down with it when the home server kept
+    /// A chapter's read-along timing comes down with it when the home server kept
     /// one, and a 404 (an older gateway, an older chapter) leaves the chapter collected without.
     func testAHomeServerChapterBringsItsReadAlongTimingWhenThereIsOne() async throws {
         let fake = FakeGateway()
@@ -604,7 +604,7 @@ final class DocumentLibraryHomeServerTests: XCTestCase {
         return DocumentSpeech.prepare(try DocumentImporter.importFile(at: url), voices: VoicePlan(narrator: narrator))
     }
 
-    /// The reverse of TBX-10974's literal path: a book the iPhone sent to the home server is a
+    /// The reverse of an internal task literal path: a book the iPhone sent to the home server is a
     /// row in this Mac's Clippings, made on the home server, under the iPhone's job, its
     /// chapters collected with their words and its place shared by document id.
     func testABookTheIPhoneSentIsAdoptedAndCollectedWithoutResubmittingIt() async throws {

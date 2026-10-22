@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# TBX-5483's local upload contract. No network, release, or real credential.
+# An internal task local upload contract. No network, release, or real credential.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -223,7 +223,7 @@ else
   ok "a receipt symlink is refused without touching its target"
 fi
 
-# TBX-10939: a refusal names curl's exit code, and the HTTP status when there was
+# A refusal names curl's exit code, and the HTTP status when there was
 # one, so a failed release says whether the request reached Crashbox at all.
 leaked_secret() {
   grep -qF -e "$TOKEN" -e 'Authorization' -e 'Bearer' -e "$BODY_MARKER" "$@"

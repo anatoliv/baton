@@ -12,7 +12,7 @@ private let streamType = Int32(SOCK_STREAM.rawValue)
 /// The contact relay waits up to 5 s for the loopback worker with blocking poll(2). Inside an
 /// async function that wait held a cooperative-pool thread, so a few relays at once left nothing
 /// to run the rest of the service on, including the worker's own callback into it
-/// (TBX-1000000496 D-8). The wait now happens on a thread of its own.
+/// The wait now happens on a thread of its own.
 final class ShareContactRelayPoolTests: XCTestCase {
     func testRelaysWaitingOnASilentWorkerLeaveTheCooperativePoolFree() async throws {
         // A worker that takes connections into its backlog and never answers.

@@ -159,13 +159,13 @@ public final class ShareService: @unchecked Sendable {
     /// How many streamed uploads may be in flight at once: one per upload target (a client never
     /// sends the same blob twice at once), three per sharer and four per network. With the size
     /// check below, one network can then hold at most 4 x 25 MiB of the 256 MiB staging ceiling
-    /// (TBX-1000000496 D-15 review).
+    ///
     static let uploadsInFlightPerTarget = 1
     static let uploadsInFlightPerSharer = 3
     static let uploadsInFlightPerNetwork = 4
 
     /// Whether an upload may reserve staging, decided from its head before the transport reserves
-    /// anything (TBX-1000000496 D-15). A refusal is the answer the upload handler would give for
+    /// anything. A refusal is the answer the upload handler would give for
     /// the same request; an admission counts against the in-flight caps until the transport calls
     /// its release, once, when the connection ends.
     public func admitUpload(_ head: StreamingUpload.Request) -> POSIXTransport.UploadAdmission {
@@ -801,7 +801,7 @@ public final class ShareService: @unchecked Sendable {
         case .audio:
             guard record.audioStored else { return notFound }
             // A whole-file fetch is a play. A continuation is free while it fits the listener's
-            // transfer allowance, and a play otherwise (§4.2, TBX-1000000494 item 3).
+            // transfer allowance, and a play otherwise (§4.2 item 3).
             let now = self.now
             let listener = visitor(who, shareID: id)
             let size = Int64(record.audioBytes)
@@ -831,7 +831,7 @@ public final class ShareService: @unchecked Sendable {
             guard let type = record.cardType else { return notFound }
             contentType = type
             // Public, but revalidated on every use, so a revoked share's card stops at once
-            // rather than up to five minutes later (TBX-1000000507 E-13).
+            // rather than up to five minutes later.
             headers["Cache-Control"] = "public, no-cache"
         }
 
@@ -878,7 +878,7 @@ public final class ShareService: @unchecked Sendable {
 
     func event(_ request: HTTPRequestMessage, id: String, who: ShareRequester) throws -> ShareResponse {
         // A held share's beacon is accepted and dropped like an ended one's, so a listener's player
-        // cannot tell a hold from an ending (owner decision 2026-10-21, TBX-1000000507 D-9).
+        // cannot tell a hold from an ending (owner decision 2026-10-21).
         if ShareLink.isValidID(id), let record = try store.share(id: id), try store.isEnforced(record) {
             return .noContent
         }

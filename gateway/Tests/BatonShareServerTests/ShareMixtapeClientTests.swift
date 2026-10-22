@@ -102,10 +102,15 @@ private final class MixtapeBridgeProtocol: URLProtocol, @unchecked Sendable {
             client?.urlProtocolDidFinishLoading(self)
         } catch { client?.urlProtocol(self, didFailWithError: error) }
     }
+    private var stoppedLoading = false
     override func stopLoading() {
+        stoppedLoading = true
         if Self.activeError === self { Self.stopped?.fulfill(); Self.stopped = nil }
     }
-    func finishError() { client?.urlProtocolDidFinishLoading(self) }
+    /// The held peer finishes only if the task is still loading. After stopLoading the client is
+    /// done with this protocol: Apple ignores a late callback, corelibs on Linux traps on it
+    /// ("a task that in not in the registry", signal 4), so the stub makes none.
+    func finishError() { if !stoppedLoading { client?.urlProtocolDidFinishLoading(self) } }
 }
 
 final class ShareMixtapeClientTests: XCTestCase {

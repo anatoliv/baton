@@ -85,7 +85,7 @@ prepare_mac() {
   mkdir -p "$MAC_RELEASE/app/Config" "$MAC_RELEASE/ios/Config"
   install -m 600 "$MAC_CONFIG" "$MAC_RELEASE/app/Config/Crashbox.local.xcconfig"
   # Both checkouts carry both configurations, so a gate receipt written in either one binds
-  # to the same digests and both releases can reuse it (scripts/gate-receipt.sh, TBX-11003).
+  # to the same digests and both releases can reuse it (scripts/gate-receipt.sh).
   install -m 600 "$IOS_CONFIG" "$MAC_RELEASE/ios/Config/Crashbox.local.xcconfig"
   if [ -e "$MAC_ARTIFACT_CREDENTIAL" ] || [ -L "$MAC_ARTIFACT_CREDENTIAL" ]; then
     [ -f "$MAC_ARTIFACT_CREDENTIAL" ] && [ ! -L "$MAC_ARTIFACT_CREDENTIAL" ] || {

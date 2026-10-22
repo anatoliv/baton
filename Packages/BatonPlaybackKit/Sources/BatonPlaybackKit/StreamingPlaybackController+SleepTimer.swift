@@ -32,7 +32,7 @@ extension StreamingPlaybackController {
     }
 
     /// The timed stop itself, in seconds so a test can arm one that fires in a moment
-    ///. The clock runs on its own, not per item: a queue of clippings or chapters
+    /// The clock runs on its own, not per item: a queue of clippings or chapters
     /// moving on to the next one leaves it alone, so it stops wherever the listener has got to.
     ///
     /// `sleepTimerEndsAt` stays set through the fade and is cleared by the stop, which is how

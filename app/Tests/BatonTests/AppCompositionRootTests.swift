@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Baton
 
-/// TBX-5324: Settings → Remote and → Friend Log both read `RemoteControlService`
+/// Settings → Remote and → Friend Log both read `RemoteControlService`
 /// (`BatonAppDelegate.remote`) through the environment, and it used to be built inside the
 /// main "Baton" window's `.task`. That meant it simply did not exist whenever that window was
 /// closed at quit and restored closed — Baton keeps running from the menu bar — so both panes

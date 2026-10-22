@@ -8,7 +8,7 @@ import XCTest
 final class PlayerHeartVisualCheck: XCTestCase {
     func testCaptureFullPlayer() throws {
         let app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
         app.launchEnvironment["uitestUser"] = "demo"
@@ -54,7 +54,7 @@ final class PlayerHeartVisualCheck: XCTestCase {
     /// project has shipped invisible and inert controls before.
     func testCaptureFriendScreen() throws {
         let app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestServer"] = "https://demo.navidrome.org"
         app.launchEnvironment["uitestUser"] = "demo"

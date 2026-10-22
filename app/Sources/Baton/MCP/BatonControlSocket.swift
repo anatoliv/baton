@@ -106,7 +106,7 @@ final class BatonControlSocket: @unchecked Sendable {
         }
         // Another live Baton (one the MCP guard refused this instance for) answers on this path.
         // Unlinking it would leave that instance listening where nobody can reach it, so only a
-        // file that answers nobody, a crash's leftover, is removed. (TBX-1000000480 A-1)
+        // file that answers nobody, a crash's leftover, is removed.
         if Self.isAnswering(addr) {
             controlSocketLog.error("control socket: another instance is listening; not starting")
             return

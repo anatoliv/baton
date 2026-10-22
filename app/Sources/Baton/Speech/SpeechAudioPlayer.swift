@@ -116,7 +116,7 @@ final class SpeechAudioPlayer {
     nonisolated(unsafe) static var isMuted = false
 
     /// Stands in for `engine.start()`, so a test can make the start fail the way a Mac with no
-    /// usable output device does (TBX-1000000504, A-4). Nil in the app.
+    /// usable output device does. Nil in the app.
     nonisolated(unsafe) static var startEngineOverride: ((AVAudioEngine) throws -> Void)?
 
     init() {
@@ -360,7 +360,7 @@ final class SpeechAudioPlayer {
     /// The graph would not start, so this clip cannot play. Reported as finished, on the next
     /// turn of the main actor as a played-out clip is, so the session ends, the duck is released
     /// and anything queued behind it gets its turn. Returning without a word left the engine
-    /// speaking forever and the music lowered until someone pressed Stop (TBX-1000000504, A-4).
+    /// speaking forever and the music lowered until someone pressed Stop.
     private func finishUnplayable() {
         generation &+= 1
         let failed = generation

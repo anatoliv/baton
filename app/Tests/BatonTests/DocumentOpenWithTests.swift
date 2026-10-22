@@ -4,7 +4,7 @@ import XCTest
 @testable import Baton
 
 /// Finder's Open With > Baton and the "Make an Audiobook with Baton" service (spec §9,
-/// TBX-10950). Both hand files to `BatonCommandRouter.openDocuments`, which sends a readable one
+/// An internal task). Both hand files to `BatonCommandRouter.openDocuments`, which sends a readable one
 /// to the import sheet the way File > Import Document… does. The hand-over itself needs Finder;
 /// what is tested is where each kind of hand-over goes, the service's pasteboard reading, and the
 /// declarations in the built Info.plist that keep Baton from ever becoming a default app.

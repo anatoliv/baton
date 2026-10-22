@@ -73,7 +73,7 @@ final class NowPlayingInfoTests: XCTestCase {
     }
 
     /// Like and Never Play in Radio reach the lock screen and CarPlay once the app supplies
-    /// them (TBX-1000000480 C1-2). The player wires its remote commands when it is made, and
+    /// them. The player wires its remote commands when it is made, and
     /// the app sets these handlers after that, so both commands stayed disabled for good.
     @MainActor
     func testLikeAndNeverPlayInRadioEnableWhenTheAppSuppliesThemAfterLaunch() {

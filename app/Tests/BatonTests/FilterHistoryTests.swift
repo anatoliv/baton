@@ -2,7 +2,7 @@ import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
-///  unit sweep: FilterHistory's dedup / recency / cap / remove logic, exercised against an
+/// An internal task unit sweep: FilterHistory's dedup / recency / cap / remove logic, exercised against an
 /// injected store so the developer's real filter history is never touched.
 final class FilterHistoryTests: XCTestCase {
     override func setUp() {

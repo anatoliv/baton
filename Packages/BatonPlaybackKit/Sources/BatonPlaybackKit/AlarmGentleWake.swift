@@ -1,6 +1,6 @@
 import Foundation
 
-/// Gentle wake (TBX-1000000445, specs/alarm-and-timer.md): an alarm that starts quiet and rises
+/// Gentle wake: an alarm that starts quiet and rises
 /// to full level. Owner, 2026-10-21: "for alarm add an option to raise the volume easy in first
 /// 30 seconds".
 ///

@@ -209,7 +209,7 @@ final class AgentConfigTests: XCTestCase {
 
     /// The connection test fingerprinted the configuration when the answer came back, so an
     /// edit made while the request was in flight was marked verified without ever being
-    /// tried (TBX-1000000480 B-7).
+    /// tried.
     func testAnEditMadeWhileTheTestRunsIsNotMarkedVerified() async throws {
         let config = makeConfig()
         config.route = .gateway
@@ -229,7 +229,7 @@ final class AgentConfigTests: XCTestCase {
     }
 
     /// The connection test's probe ("What is playing right now?") and its answer were kept as the
-    /// first turn of the person's next conversation (TBX-1000000505 B-21).
+    /// first turn of the person's next conversation.
     func testTheConnectionTestLeavesNoTurnInTheConversation() async {
         let config = makeConfig()
         config.route = .gateway

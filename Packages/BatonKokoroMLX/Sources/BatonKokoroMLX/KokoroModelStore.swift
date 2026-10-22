@@ -16,7 +16,7 @@ public struct KokoroModelFile: Sendable, Equatable {
     }
 }
 
-/// The two files Kokoro needs, pinned by revision and checksum (recorded in TBX-10849,
+/// The two files Kokoro needs, pinned by revision and checksum (recorded in an internal task,
 /// `spikes/kokoro-mlx/RESULTS.md`; the weights' sha256 is also Hugging Face's own LFS id).
 public enum KokoroModelFiles {
     /// Kokoro-82M v1.0 converted for MLX, Apache-2.0, from Hugging Face prince-canuma/Kokoro-82M

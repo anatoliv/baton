@@ -4,7 +4,7 @@ import BatonSubsonicKit
 import Observation
 import SwiftUI
 
-/// Settings → Speech → **Voice engine for books** (TBX-10909, built on TBX-10854's download):
+/// Settings → Speech → **Voice engine for books**:
 /// which engine reads a book made on this Mac, each choice with what it needs and a live status
 /// line, the built-in voices' download, and where a new book is made.
 ///

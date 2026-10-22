@@ -1,7 +1,7 @@
 import XCTest
 
 /// A document handed to Baton while something else is on screen still opens the import screen
-///.
+///
 ///
 /// The import screen is a sheet at the root, and UIKit will not present a sheet from a view
 /// controller that is already presenting one. With the full player or Settings up, the request

@@ -15,7 +15,7 @@ def check(mac_app_id=None):
     # The iPhone carries the association in every build. The Mac carries it only in Release
     # (Developer ID, signed by scripts/publish.sh with the "Baton Mac Developer ID" profile):
     # no Mac App Development profile has Associated Domains, so Debug, test and probe builds
-    # keep the core-only Baton.entitlements, or AMFI refuses to launch them (TBX-8693).
+    # keep the core-only Baton.entitlements, or AMFI refuses to launch them.
     def domains(path):
         with (ROOT / path).open("rb") as file:
             return plistlib.load(file).get("com.apple.developer.associated-domains")

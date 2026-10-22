@@ -14,7 +14,7 @@ import BatonPlaybackKit
 struct SharedSettingsPane: View {
     @Environment(MusicModel.self) private var model
     @AppStorage("baton.agent.gatewayURL") private var gatewayURL = ""
-    @State private var token = NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? ""
+    @State private var token = BearerGateway.savedToken() ?? ""
     @State private var status: String?
     @State private var isSyncing = false
 
@@ -34,10 +34,10 @@ struct SharedSettingsPane: View {
                 .foregroundStyle(.secondary)
             SecureField("Baton server token", text: $token)
             Button("Save token") {
-                NavidromeKeychain.setSecret(token, account: "baton.agent.gatewayToken")
+                NavidromeKeychain.setSecret(token, account: BearerGateway.tokenAccount)
                 status = "Saved."
             }
-            .disabled(token == (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? ""))
+            .disabled(token == (BearerGateway.savedToken() ?? ""))
 
             LabeledContent("Connection") {
                 HStack(spacing: 10) {
@@ -98,8 +98,12 @@ struct SharedSettingsPane: View {
             gatewayStatus = .unreachable("That doesn't look like a URL.")
             return
         }
+        guard let gateway = BearerGateway.resolve(address: trimmed, token: token) else {
+            gatewayStatus = .refused(Self.notSentReason(address: trimmed, token: token) ?? Self.clearTextRefusal(url))
+            return
+        }
         gatewayStatus = .checking
-        switch await sync.check(gatewayURL: url, token: token) {
+        switch await sync.check(gatewayURL: gateway.url, token: gateway.token) {
         case let .ok(entries):
             gatewayStatus = .ok(detail: entries == 0
                 ? "Reachable. Nothing shared yet. This would be the first device."
@@ -112,13 +116,17 @@ struct SharedSettingsPane: View {
     }
 
     private func runSync() async {
-        guard let url = URL(string: gatewayURL.trimmingCharacters(in: .whitespaces)) else {
+        guard let url = URL(string: gatewayURL.trimmingCharacters(in: .whitespaces)), url.host != nil else {
             status = "That doesn't look like a URL."
+            return
+        }
+        guard let gateway = BearerGateway.resolve(address: gatewayURL, token: token) else {
+            status = Self.notSentReason(address: gatewayURL, token: token) ?? Self.clearTextRefusal(url)
             return
         }
         isSyncing = true
         status = nil
-        let ok = await sync.sync(gatewayURL: url, token: token)
+        let ok = await sync.sync(gatewayURL: gateway.url, token: gateway.token)
         // A sync merges the phone's search history straight into UserDefaults, which the
         // in-memory list can't see. Without this it only appears after a relaunch.
         model.searchRecents.reload()
@@ -126,5 +134,27 @@ struct SharedSettingsPane: View {
         // Reports what happened rather than a spinner that stops: a sync that silently
         // fails is indistinguishable from one that had nothing to do.
         status = ok ? "Settings exchanged." : "Couldn't reach the Baton server."
+    }
+
+    /// Why the token would not be sent to `address`, or nil when it would be.
+    static func notSentReason(address: String, token: String) -> String? {
+        guard BearerGateway.resolve(address: address, token: token) == nil else { return nil }
+        if token.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "Not sent: the token is empty. Paste the Baton server's token and save it."
+        }
+        guard let url = URL(string: address.trimmingCharacters(in: .whitespaces)), url.host != nil,
+              let scheme = url.scheme?.lowercased() else {
+            return "That doesn't look like a URL."
+        }
+        guard scheme == "http" || scheme == "https" else {
+            return "Not sent: the Baton server's address has to start with http:// or https://."
+        }
+        return clearTextRefusal(url)
+    }
+
+    /// Why the token was not sent: plain HTTP to an address off the home network would carry it
+    /// across the internet in the clear (`BearerGateway`).
+    static func clearTextRefusal(_ url: URL) -> String {
+        "Not sent: \(url.host ?? "this address") is outside your home network, so the token would travel unencrypted. Use https://, or the server's home or Tailscale address."
     }
 }

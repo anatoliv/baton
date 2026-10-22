@@ -23,7 +23,7 @@ packages:
   # a protected Crashbox DSN. The SDK library is not a hosted-service dependency.
   Sentry:
     url: https://github.com/getsentry/sentry-cocoa
-    # Pinned to the tested minor (W-17): the W-10 privacy hardening depends on
+    # Pinned to the tested minor: the privacy hardening depends on
     # sentry-cocoa's 8.58.x auto-instrumentation option names/defaults.
     exactVersion: "8.58.4"
   # Auto-update. Same framework and pin Tonebox uses. The appcast feed +
@@ -32,14 +32,14 @@ packages:
   # and docs/RELEASE-APPCAST-HOSTING.md.
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    exactVersion: "2.9.4" # pinned to the tested version (W-17)
-  # Local module: the pure equalizer DSP, first leaf of the W-51 module-boundary split.
+    exactVersion: "2.9.4" # pinned to the tested version
+  # Local module: the pure equalizer DSP, first leaf of the module-boundary split.
   BatonDSP:
     path: ../Packages/BatonDSP
-  # Local module: the Subsonic/Navidrome domain value types, second leaf of the W-51 split.
+  # Local module: the Subsonic/Navidrome domain value types, second leaf of the split.
   BatonSubsonicModels:
     path: ../Packages/BatonSubsonicModels
-  # Local module: the TTS config + synthesis layer, third leaf of the W-51 split.
+  # Local module: the TTS config + synthesis layer, third leaf of the split.
   BatonSpeech:
     path: ../Packages/BatonSpeech
   # Local module: the MCP transport protocol (JSON-RPC, HTTP parse/frame, auth), fourth leaf.
@@ -66,7 +66,7 @@ packages:
   # Linux only, so the app links nothing new from it.
   BatonShareKit:
     path: ../Packages/BatonShareKit
-  # Local module: the built-in "This Mac" voices, Kokoro on MLX Swift (TBX-10854). Mac only:
+  # Local module: the built-in "This Mac" voices, Kokoro on MLX Swift. Mac only:
   # ios/project.yml must never list it, so the iPhone app links no MLX.
   BatonKokoroMLX:
     path: ../Packages/BatonKokoroMLX
@@ -79,15 +79,15 @@ settings:
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: "Q8822GNL2H"
-    MARKETING_VERSION: "0.20.15"
-    CURRENT_PROJECT_VERSION: "132"
+    MARKETING_VERSION: "0.20.16"
+    CURRENT_PROJECT_VERSION: "133"
     # The 40-char lowercase-hex commit this build came from, baked into the app as
     # the BatonSourceCommit Info.plist key below. Empty here on purpose: an ordinary
     # `xcodebuild` from Xcode or a dev loop has no business claiming an identity, and
     # a stale hardcoded default would be worse than none. scripts/publish.sh passes
     # the real value on the command line (BATON_SOURCE_COMMIT=$(git rev-parse HEAD)),
     # where it outranks this, and scripts/release-identity.sh refuses to package any
-    # bundle whose baked value is empty, abbreviated, uppercase or non-hex. (TBX-5101)
+    # bundle whose baked value is empty, abbreviated, uppercase or non-hex.
     BATON_SOURCE_COMMIT: ""
     # Release scripts inject Crashbox through a temporary mode-0600 xcconfig.
     # Ordinary Xcode and public-source builds remain reporting-disabled.
@@ -136,14 +136,14 @@ targets:
           set -e
           cp "$SRCROOT/../HELP.md" "$SRCROOT/Sources/Baton/Resources/HELP.md"
           cp "$SRCROOT/../FAQ.md"  "$SRCROOT/Sources/Baton/Resources/FAQ.md"
-    # MLX's shaders for the built-in voices (TBX-10854). With Xcode's Metal Toolchain installed
+    # MLX's shaders for the built-in voices. With Xcode's Metal Toolchain installed
     # (the owner's choice for releases, 2026-10-15), Xcode compiles them into mlx-swift_Cmlx.bundle
     # and this does nothing. The rest is the fallback for a Mac without it: the build
     # leaves out MLX's .metal sources (scripts/mlx-metal-build-settings.sh) and this puts MLX's
     # published metallib of the same version there instead, checked by sha256
     # (scripts/fetch-mlx-metallib.sh fetches it). With neither, a Debug build warns and the
     # built-in voices say they are not available in it; a Release build fails, so an app whose
-    # voice engine cannot start never ships (TBX-10926; scripts/publish.sh checks it again).
+    # voice engine cannot start never ships.
     postBuildScripts:
       - name: Bundle MLX shaders
         basedOnDependencyAnalysis: false
@@ -197,7 +197,7 @@ targets:
       # same thing on both apps and on every screen that shows one.
       - path: ../Shared/ServiceStatus.swift
       # Tells "the Keychain is locked" apart from "no password saved" in one place, so both
-      # apps say the same thing about it. See the type's own note (TBX-5268).
+      # apps say the same thing about it. See the type's own note.
       - path: ../Shared/KeychainLockedBanner.swift
       - path: ../Shared/CrashReporting.swift
       - path: ../Shared/ReportingAttemptGate.swift
@@ -216,12 +216,12 @@ targets:
       # Books made on the home server, remembered and collected the same way on both apps (M5.3, M5.6).
       - path: ../Shared/HomeServerBooks.swift
       - path: ../Shared/BookCovers.swift
-      # Read-along for a playing book, one view for both apps (TBX-10960).
+      # Read-along for a playing book, one view for both apps.
       - path: ../Shared/ReadAlongView.swift
-      # The voice picker, one for both apps: suggested voices, then every voice (TBX-11028).
+      # The voice picker, one for both apps: suggested voices, then every voice.
       - path: ../Shared/VoicePicker.swift
       # Clock-style Alarm and Timer, the screens and the notification path, one for both apps
-      # (TBX-11171, specs/alarm-and-timer.md).
+      #
       - path: ../Shared/AlarmViews.swift
       - path: ../Shared/AlarmNotifications.swift
       - path: ../Shared/ReactionPushNotifications.swift
@@ -241,7 +241,7 @@ targets:
         # expressed — INFOPLIST_KEY_* only supports flat keys.
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_HARDENED_RUNTIME: YES
-        # Localization groundwork (W-64): adopt a String Catalog and let the compiler extract
+        # Localization groundwork: adopt a String Catalog and let the compiler extract
         # SwiftUI `Text("…")` strings into it, so the whole UI is localizable when target locales
         # are chosen — no per-string wrapping needed. English is the development/source language.
         LOCALIZATION_PREFERS_STRING_CATALOGS: YES
@@ -250,7 +250,7 @@ targets:
         # same file into every configuration and override the Release one below.
         CODE_SIGN_ENTITLEMENTS: Baton.entitlements
       configs:
-        # Song and mixtape links on batonmusic.app open in the app (TBX-8693). Only Release
+        # Song and mixtape links on batonmusic.app open in the app. Only Release
         # carries the restricted associated-domains entitlement, and scripts/publish.sh signs
         # it with the "Baton Mac Developer ID" profile. Debug, test and probe builds keep the
         # core-only Baton.entitlements: no Mac App Development profile has Associated Domains,
@@ -270,7 +270,7 @@ targets:
         CFBundleDisplayName: Baton
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
-        # The exact source revision this bundle was compiled from (TBX-5101).
+        # The exact source revision this bundle was compiled from.
         #
         # Version strings are not an identity: every commit carrying MARKETING_VERSION
         # 0.17.12 builds an app that looks identical to every other, and a git tag is a
@@ -313,7 +313,7 @@ targets:
             NSPortName: Baton
             NSSendTypes: [NSStringPboardType]
             NSRequiredContext: {}
-          # Document clippings from a file in Finder (spec §9, TBX-10950): the same import sheet
+          # Document clippings from a file in Finder (spec §9): the same import sheet
           # File > Import Document… opens. NSSendFileTypes makes it a file service, so Finder
           # lists it for a selected PDF, EPUB, web page, text or Markdown file and for nothing else.
           - NSMenuItem:
@@ -323,7 +323,7 @@ targets:
             NSSendFileTypes: [com.adobe.pdf, org.idpf.epub-container, public.html, public.plain-text, net.daringfireball.markdown]
             NSRequiredContext: {}
         NSHighResolutionCapable: true
-        # Finder's Open With > Baton for the documents Clippings imports (spec §9, TBX-10950).
+        # Finder's Open With > Baton for the documents Clippings imports (spec §9).
         # Viewer and Alternate on every one: Baton is offered in Open With and never becomes the
         # default app for a PDF, a web page or a text file. Opening one goes to the import sheet.
         CFBundleDocumentTypes:
@@ -418,16 +418,16 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         # Instantiated when XCTest loads the bundle, which is how `RunnerExitDiagnostic`
-        # arms before the first test rather than partway through the run. See TBX-2848:
+        # arms before the first test rather than partway through the run. See an internal task:
         # a gate run's host process exited cleanly mid-suite and left no evidence at all.
         INFOPLIST_KEY_NSPrincipalClass: BatonRunnerExitDiagnostic
         BUNDLE_LOADER: $(TEST_HOST)
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Baton.app/Contents/MacOS/Baton
     dependencies:
       - target: Baton
-      - package: Sentry # W-10: CrashReportingScrubberTests builds synthetic Sentry events
+      - package: Sentry # CrashReportingScrubberTests builds synthetic Sentry events
 
-  # W-48: launch/smoke UI tests. Deliberately kept OUT of the `Baton` scheme's test action below,
+  # launch/smoke UI tests. Deliberately kept OUT of the `Baton` scheme's test action below,
   # so the headless `scripts/test.sh` gate (which runs `-scheme Baton`) never tries to launch a UI
   # session it can't. Run explicitly with `-scheme BatonUITests` on a machine with a GUI + signed app.
   BatonUITests:
@@ -472,7 +472,7 @@ schemes:
         # BatonSubsonicModels was the one package with tests that this list missed, which
         # is the same hole one layer down: `DisplayNameTests` guards the rule deciding what
         # metadata reaches the screen, an agent reply and a widget, and the gate had never
-        # run it. Found by checking which of the suites added for TBX-2838 actually
+        # run it. Found by checking which of the suites added for an internal task actually
         # appeared in the result bundle — the total alone looked fine.
         - package: BatonSubsonicModels/BatonSubsonicModelsTests
         # Added with the targets themselves (S-F24). Both packages shipped with no test
@@ -480,17 +480,17 @@ schemes:
         # is the same hole one layer up, which is what happened to BatonSubsonicModels.
         - package: BatonSpeech/BatonSpeechTests
         - package: BatonMCPProtocol/BatonMCPProtocolTests
-        # BatonSubsonicKitTests (added by WS3, TBX-5309) had the same hole: it ran green
+        # BatonSubsonicKitTests (added by WS3) had the same hole: it ran green
         # under `swift test` inside the package, which is how WS3 verified it, and was
         # never added here, so the gate built the package and executed none of its tests.
-        # A suite green in one place looks identical to one that runs nowhere (TBX-5363).
+        # A suite green in one place looks identical to one that runs nowhere.
         - package: BatonSubsonicKit/BatonSubsonicKitTests
         # In the scheme from the day the package exists, so it never joins the list above.
         - package: BatonDocuments/BatonDocumentsTests
         # The BSH1 format and its cross-implementation vectors, the link, the wire types, the
         # client and the ledger. Also runs on Linux with the share service (gateway/).
         - package: BatonShareKit/BatonShareKitTests
-        # The built-in voices: engine contract on a stub model, chunking, the download (TBX-10854).
+        # The built-in voices: engine contract on a stub model, chunking, the download.
         - package: BatonKokoroMLX/BatonKokoroMLXTests
     profile:
       config: Release

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// A document arrives from Files ("Open in"), from the share extension's inbox at activation or
 /// from Clippings, and waits in `MobileModel.pendingDocumentImport` until the import screen has
-/// been seen. The screen is a sheet at the root (shared with What's New, TBX-10876), and UIKit
+/// been seen. The screen is a sheet at the root (shared with What's New), and UIKit
 /// will not present a sheet from a view controller that is already presenting one. With the full
 /// player, an album, Settings or anything else up, the request was dropped without a word: the
 /// document stayed pending, nothing showed it, and it looked lost.

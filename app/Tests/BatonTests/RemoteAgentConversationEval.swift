@@ -22,7 +22,7 @@ import BatonShareKit
 /// It prints a scorecard and every failing case, so the output is the report.
 @MainActor
 final class RemoteAgentConversationEval: XCTestCase {
-    /// Belt and braces for TBX-2848: this is the test the runner died under, so arm the
+    /// Belt and braces for an internal task: this is the test the runner died under, so arm the
     /// exit diagnostic here too rather than trusting the bundle's principal class to have
     /// been instantiated. Idempotent.
     override class func setUp() {

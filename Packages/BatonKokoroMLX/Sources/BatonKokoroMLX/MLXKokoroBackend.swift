@@ -39,7 +39,7 @@ final class MLXKokoroBackend: KokoroBackend {
 /// MLX's process-wide settings for this engine, and where its compiled shaders are.
 public enum KokoroMLXRuntime {
     /// MLX keeps freed GPU buffers for reuse up to its memory limit, which on a large Mac is
-    /// tens of GB of footprint (29 GB measured in TBX-10849). Capped at 512 MB the footprint was
+    /// tens of GB of footprint (29 GB measured in an internal task). Capped at 512 MB the footprint was
     /// 3.0 GB for about 10% of speed.
     public static let gpuCacheLimitBytes = 512 * 1_048_576
 

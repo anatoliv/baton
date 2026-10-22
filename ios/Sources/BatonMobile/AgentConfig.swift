@@ -107,7 +107,7 @@ final class AgentConfig {
     /// `route`/`provider`/`model`/`baseURL` at launch so the Friend tab is reachable without
     /// a real provider. That used to be `-baton.agent.route direct` etc. in
     /// `app.launchArguments`, read automatically off `UserDefaults`'s NSArgumentDomain.
-    /// TBX-5336: `XCUIApplication.launchArguments` drops a whole `-key value` group about one
+    /// `XCUIApplication.launchArguments` drops a whole `-key value` group about one
     /// launch in four, so these now come through `app.launchEnvironment` — and because
     /// `AgentConfig` reads its stored values once, at construction (in a `MobileModel`
     /// property initializer, before `MobileModel.init()`'s own body — including its

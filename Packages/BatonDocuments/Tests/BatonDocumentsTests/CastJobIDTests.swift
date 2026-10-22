@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import BatonDocuments
 
-/// TBX-10902: who speaks a line is part of the job. A cast book made again with the same voices
+/// Who speaks a line is part of the job. A cast book made again with the same voices
 /// but different attribution (the rules alone, then the rules and the model's fill, or after the
 /// cast sheet is corrected) is a different reading, so it is a different job, here and on the
 /// home server. A narrator-only book keeps the id it always had.
@@ -13,7 +13,7 @@ final class CastJobIDTests: XCTestCase {
         DialogueCast.Character(name: "Tom", gender: "m", age: "young", aliases: ["her son"]),
     ]
 
-    /// One tagged line, two the rules cannot place, then a tagged one (the TBX-10894 fixture).
+    /// One tagged line, two the rules cannot place, then a tagged one (the fixture).
     private var room: ImportedDocument {
         ImportedDocument(sourceSHA256: String(repeating: "ef", count: 32), sourceKind: .text, title: "The Room",
                          chapters: [DocumentChapter(index: 0, title: "Chapter 1", paragraphs: [
@@ -45,7 +45,7 @@ final class CastJobIDTests: XCTestCase {
 
     // MARK: Golden ids
 
-    /// Ids recorded from the code before TBX-10902 (main af3f9d67). A narrator-only book on a
+    /// Ids recorded from the code before an internal task (main af3f9d67). A narrator-only book on a
     /// Mac or the home server must be found under exactly these.
     func testNarratorOnlyBooksKeepTheirIdsByteForByte() {
         XCTAssertEqual(BookJob.id(for: sampleBook()), "972375478d97a53a2d1be67bd3bc457d73afb7727d68c95678816bb50542236b")

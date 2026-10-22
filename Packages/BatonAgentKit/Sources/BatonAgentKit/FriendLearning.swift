@@ -196,7 +196,7 @@ public final class FriendLearningStore {
     /// Adopt the merged ledger — what both devices now agree the friend got wrong.
     ///
     /// A retirement recorded on the other device removes the correction here, which is the
-    /// answer to the question TBX-5125 raised: a retirement *is* a statement the other device
+    /// answer to the question an internal task raised: a retirement *is* a statement the other device
     /// should adopt, because it means the friend demonstrably got that request right, and
     /// that is a fact about the friend rather than about the device that observed it.
     @discardableResult

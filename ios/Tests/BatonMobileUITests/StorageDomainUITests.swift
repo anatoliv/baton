@@ -4,7 +4,7 @@ import XCTest
 ///
 /// ## The claim this exists to test
 ///
-/// TBX-5125's review log carried a caution, marked "read from code and not tested": under
+/// An internal task review log carried a caution, marked "read from code and not tested": under
 /// XCUITest the app process links XCTest, so `BatonEnvironment.current` is `.testing`;
 /// `FriendLedgerStore.defaultDefaults()` then returns a random throwaway suite while
 /// `PreferenceSync` still uses `.standard`; the two never meet, the merge never fires, and a UI
@@ -12,7 +12,7 @@ import XCTest
 ///
 /// It was a reasonable reading. It is also the kind of claim that gets believed for a year
 /// because nobody can be bothered to check, and it had already cost one live walk its method —
-/// TBX-5125 drove the app with `simctl launch` rather than XCUITest partly because of it.
+/// An internal task drove the app with `simctl launch` rather than XCUITest partly because of it.
 ///
 /// ## Why the check is shaped like this
 ///
@@ -36,7 +36,7 @@ final class StorageDomainUITests: XCTestCase {
 
     func testTheAppUnderXCUITestResolvesOneStorageDomainForBothHalvesOfFriendSync() {
         let app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         launchForReleaseNavigation(app)
@@ -64,7 +64,7 @@ final class StorageDomainUITests: XCTestCase {
     /// worse than no redirect, since the run would look clean and test nothing.
     func testAProbeLaunchAlsoKeepsBothHalvesInOneDomain() {
         let app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         // `-baton.defaultsSuite`'s environment fallback lives in `BatonStorage.redirect`.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"

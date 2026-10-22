@@ -2,7 +2,7 @@ import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
-/// : versioned, corruption-safe persistence. A corrupt file must be preserved (never
+/// Versioned, corruption-safe persistence. A corrupt file must be preserved (never
 /// silently wiped), legacy unversioned files must migrate, and version bumps must migrate.
 final class VersionedStoreTests: XCTestCase {
     private var dir: URL!

@@ -73,7 +73,7 @@ final class GatewayAddressTests: XCTestCase {
         }
     }
 
-    // MARK: - Where the gateway's bearer may go (TBX-1000000505 B-9)
+    // MARK: - Where the gateway's bearer may go
 
     /// The caller's private-host rule, standing in for `RemoteNaturalLanguage.isPrivate`.
     private func isPrivate(_ host: String) -> Bool {
@@ -108,7 +108,7 @@ final class GatewayAddressTests: XCTestCase {
     }
 
     /// Tailscale and the IPv6 link-local and unique-local ranges never cross the public internet,
-    /// and gateway/README.md calls plain HTTP over Tailscale fine (TBX-1000000505 review).
+    /// and gateway/README.md calls plain HTTP over Tailscale fine.
     func testTailscaleAndLocalIPv6StillWorkOverPlainHTTP() {
         XCTAssertTrue(allows("http://100.101.102.103:8788"))
         XCTAssertTrue(allows("http://100.64.0.1:8788"))

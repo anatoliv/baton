@@ -145,7 +145,7 @@ final class GatewayDeviceLinkTests: XCTestCase {
 
     /// The link fixes its gateway address when it starts, and a settings import did not
     /// restart it, so after "Set up from a Mac" the phone went on polling the old host, now
-    /// with the newly imported token (TBX-1000000480 B-8).
+    /// with the newly imported token.
     func testASettingsImportMovesTheLinkToTheImportedGateway() {
         let key = "baton.agent.gatewayURL"
         defer { BatonStorage.defaults.removeObject(forKey: key) }
@@ -167,7 +167,7 @@ final class GatewayDeviceLinkTests: XCTestCase {
 
     /// On a fresh phone the link was never started (no gateway yet), and the import that brings
     /// one did not start it either: the phone was not the gateway's player until it next came to
-    /// the foreground (TBX-1000000505, B-8 edge).
+    /// the foreground.
     func testASettingsImportOnAFreshPhoneStartsTheLink() {
         let key = "baton.agent.gatewayURL"
         BatonStorage.defaults.removeObject(forKey: key)
@@ -183,7 +183,7 @@ final class GatewayDeviceLinkTests: XCTestCase {
         XCTAssertEqual(model.deviceLink.pollingURL?.port, 59997, "the imported gateway is polled at once")
     }
 
-    // MARK: - Where the token may go (TBX-1000000505 B-9)
+    // MARK: - Where the token may go
 
     /// ATS lets plain HTTP through to an IP address, so a public one typed by mistake took the
     /// household's gateway token across the internet in the clear on every poll.

@@ -158,7 +158,7 @@ final class BookStorageMacTests: XCTestCase {
         XCTAssertTrue(clippings.chapters(ofDocument: prepared.documentID).allSatisfy(\.isPresent))
     }
 
-    /// Two clippings for one chapter, as TBX-10975 once left, are both held under the same file
+    /// Two clippings for one chapter, as an internal task once left, are both held under the same file
     /// name, so the second cannot be. A chapter that is not held must not be deleted.
     func testADeleteThatCannotHoldAChapterLeavesItInsteadOfDeletingIt() async throws {
         let (library, clippings, _, prepared) = try await madeBook()

@@ -7,7 +7,7 @@ import SwiftUI
 
 /// **Clippings** — audio Baton made and kept: a saved reading, and in time anything clipped out
 /// of what is playing. Books made from documents have their own section, Books
-/// (`MusicBooksView`, TBX-11018); Clippings keeps the plain readings, which play one after
+/// (`MusicBooksView`); Clippings keeps the plain readings, which play one after
 /// another.
 ///
 /// Built from `MusicBrowseHeader` and the same list rows as every other browse view, which is
@@ -328,15 +328,11 @@ struct MusicClippingsView: View {
 @MainActor
 enum ClippingSharedCopy {
     static func remove(_ digest: String, music: StreamingPlaybackController) {
-        let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "")
-            .trimmingCharacters(in: .whitespaces)
-        let token = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "")
-            .trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return }
+        guard let gateway = BearerGateway.configured() else { return }
 
         Task {
             do {
-                try await GatewayFiles(gatewayURL: url, token: token).delete(id: digest)
+                try await GatewayFiles(gatewayURL: gateway.url, token: gateway.token).delete(id: digest)
             } catch {
                 // Named rather than swallowed: the clipping is gone from this Mac either way,
                 // and the tombstone still travels, so this is "the shared copy outlived the

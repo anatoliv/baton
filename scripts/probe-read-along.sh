@@ -1,5 +1,5 @@
 #!/bin/bash
-# The read-along walk (TBX-10960), on a probe instance, never the owner's Baton:
+# The read-along walk, on a probe instance, never the owner's Baton:
 #
 #   KOKORO_URL=http://<kokoro-host>:8880 scripts/probe-read-along.sh <Baton.app> <evidence-dir>
 #

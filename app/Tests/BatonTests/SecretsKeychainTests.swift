@@ -2,7 +2,7 @@ import XCTest
 import BatonSubsonicKit
 @testable import Baton
 
-/// : account-controlling secrets live in the Keychain, migrated transparently from any
+/// account-controlling secrets live in the Keychain, migrated transparently from any
 /// legacy plaintext UserDefaults copy, and never written back to UserDefaults.
 @MainActor
 final class SecretsKeychainTests: XCTestCase {

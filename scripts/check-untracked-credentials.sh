@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Refuse when a credential-looking file sits in the working tree where the next
-# `git add -A` would take it, or is staged as a new file. (TBX-7289)
+# `git add -A` would take it, or is staged as a new file.
 #
 #   scripts/check-untracked-credentials.sh [repo-root]
 #

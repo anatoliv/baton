@@ -138,7 +138,7 @@ final class BookSpeedSleepUITests: XCTestCase {
         removeUIInterruptionMonitor(monitor)
     }
 
-    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    /// Books has its own Library section since an internal task; the route is `BooksScreen`.
     private func openBooks() {
         BooksScreen.open(app)
     }

@@ -159,7 +159,7 @@ public struct ShareLedger: Codable, Equatable, Sendable {
             guard original.containerKind == .book else { return original }
             var record = original
             if let value = byID[record.id] {
-                record.summary = value.share; record.bookSummary = value
+                record.summary = value.share; record.bookSummary = Self.keepingContents(of: record.bookSummary, in: value)
                 record.expiresAt = ShareDate.date(value.share.expiresAt) ?? record.expiresAt
                 return record
             }
@@ -169,8 +169,22 @@ public struct ShareLedger: Codable, Equatable, Sendable {
 
     public mutating func updateBook(_ summary: BookSummary) {
         guard let index = records.firstIndex(where: { $0.id == summary.share.id && $0.containerKind == .book }) else { return }
-        records[index].summary = summary.share; records[index].bookSummary = summary
+        records[index].summary = summary.share
+        records[index].bookSummary = Self.keepingContents(of: records[index].bookSummary, in: summary)
         records[index].expiresAt = ShareDate.date(summary.share.expiresAt) ?? records[index].expiresAt
+    }
+
+    /// The service counts the chapters (an album's or playlist's songs) and the read-along text
+    /// it still holds, and an ended link holds none: revoke and expiry delete them. So once the
+    /// link has ended, the row keeps what it last knew was shared rather than "0 songs"
+    /// While the link is live the service's count stands.
+    static func keepingContents(of previous: BookSummary?, in incoming: BookSummary) -> BookSummary {
+        guard let previous, incoming.share.status == .revoked || incoming.share.status == .expired,
+              incoming.chapterCount == 0 else { return incoming }
+        var kept = incoming
+        kept.chapterCount = previous.chapterCount
+        kept.hasText = incoming.hasText || previous.hasText
+        return kept
     }
 
     // MARK: - Failures waiting to be reported

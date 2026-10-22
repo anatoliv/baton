@@ -14,7 +14,7 @@ final class GatewayToolSurface: RemoteToolSurface {
     private let client: NavidromeClient
     private let devices: DeviceLink
     /// The last search, per conversation. One shared field made `music_similar_songs` seed from
-    /// whoever searched most recently (TBX-5308, S-F26).
+    /// whoever searched most recently.
     private let lastResults = SearchSeedStore<[NavidromeSong]>()
 
     init(client: NavidromeClient, devices: DeviceLink) {

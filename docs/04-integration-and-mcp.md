@@ -282,7 +282,7 @@ the navigation and the cookie banner needs `execute javascript`, which only work
 user ticks View → Developer → "Allow JavaScript from Apple Events" by hand and raises an
 Automation prompt for Chrome. A per-machine hidden toggle can never be a default path, so
 the extraction happens where the knowledge already is — in the agent driving the browser —
-and Baton keeps the part it is good at. Zero permissions, no AppleScript. (TBX-3829, which
+and Baton keeps the part it is good at. Zero permissions, no AppleScript. (which
 this closes in place of the AppleScript tier.)
 
 It routes through the same `capture` entry as the Services menu and the hotkey, so the text

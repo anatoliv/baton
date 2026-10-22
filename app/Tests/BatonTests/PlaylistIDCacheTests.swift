@@ -4,7 +4,7 @@ import BatonSubsonicKit
 
 /// The name cache must pick the same playlist the uncached resolver picks: an exact name
 /// first, otherwise the first playlist in server order whose name contains the query
-/// (TBX-1000000480 A-9).
+///
 @MainActor
 final class PlaylistIDCacheTests: XCTestCase {
     override func setUp() { PlaylistIDCache.shared.reset() }

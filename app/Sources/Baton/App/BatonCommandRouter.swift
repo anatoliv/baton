@@ -23,7 +23,7 @@ final class BatonCommandRouter {
     /// section + detail view, then clears it.
     var pendingSourceNavigation: StreamingPlaybackController.QueueSource?
     /// A file **Import Document…** (⇧⌘O) chose. `MusicBooksView` presents the import sheet
-    /// for it and clears it (document clippings, M3.4; Books since TBX-11018).
+    /// for it and clears it (document clippings, M3.4; Books since an internal task).
     var pendingDocumentImport: URL?
 
     /// Files handed over from outside, by Finder's Open With or the "Make an Audiobook with

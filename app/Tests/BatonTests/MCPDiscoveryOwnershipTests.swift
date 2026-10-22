@@ -3,7 +3,7 @@ import BatonSubsonicKit
 @testable import Baton
 
 /// A Baton refused because another live instance owns the MCP endpoint never wrote `mcp.json`,
-/// so its `stop()` must not delete the live owner's discovery file (TBX-1000000480 A-2).
+/// so its `stop()` must not delete the live owner's discovery file.
 @MainActor
 final class MCPDiscoveryOwnershipTests: XCTestCase {
     private var tempDir: URL!

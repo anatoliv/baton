@@ -58,7 +58,7 @@ public func httpResponse(status: String, body: String) -> Data {
     httpResponse(status: status, contentType: "application/json", payload: Data(body.utf8))
 }
 
-/// An error body that is JSON whatever the message contains (TBX-5308, S-F26).
+/// An error body that is JSON whatever the message contains.
 ///
 /// The old form interpolated the message into a JSON literal, and the one caller that mattered
 /// passed `String(describing: error)` for a provider failure — free-form text that reliably
@@ -97,7 +97,7 @@ public func httpResponse(status: String, contentType: String, payload: Data,
     return Data(head.utf8) + payload
 }
 
-/// A header value that cannot become a second header (TBX-5308, S-F26).
+/// A header value that cannot become a second header.
 ///
 /// `X-Baton-Name` is echoed back from whatever an upload stored, and the head is assembled by
 /// string concatenation, so a value carrying CR or LF used to emit two lines. The parser trimmed
@@ -278,7 +278,7 @@ public struct POSIXTransport: ServerTransport {
     let stagingDirectory: URL
     let maximumBodyBytes: Int
     /// How long one `read` on an accepted socket may block before the connection is dropped
-    /// (TBX-5308, S-F13).
+    ///
     ///
     /// **Per read, not per request**, which is what makes it safe for a slow 64 MB upload on poor
     /// Wi-Fi: a client that keeps sending resets the clock with every chunk. What it ends is a
@@ -297,7 +297,7 @@ public struct POSIXTransport: ServerTransport {
     let responseCapacity: ResponseCapacity?
     let reserveResponseBytes: @Sendable (HTTPRequestMessage) -> Int
     let streamsBody: StreamingPredicate
-    /// Asked once an upload's head has arrived and before it reserves staging space (TBX-1000000496
+    /// Asked once an upload's head has arrived and before it reserves staging space (an internal task
     /// D-15). `.refuse` answers there and then; `.admit` lets it stream, and its `release` runs
     /// once when that connection ends, however it ends, so the admitter can count uploads in
     /// flight. Without it, anyone could reserve the staging ceiling from a declared
@@ -421,7 +421,7 @@ public struct POSIXTransport: ServerTransport {
         upload: @escaping @Sendable (StreamingUpload.Request, URL) async -> Data,
         peerHandle: PeerHandler? = nil
     ) throws -> Listener {
-        // Disarm SIGPIPE before a single byte is written (TBX-5308, S-F4).
+        // Disarm SIGPIPE before a single byte is written.
         //
         // Writing to a socket whose peer has closed raises SIGPIPE, and its default disposition
         // *terminates the process*. A phone that cancels a download, a curl that is Ctrl-C'd, or a
@@ -497,7 +497,7 @@ public struct POSIXTransport: ServerTransport {
                     continue
                 }
                 // A thread of this connection's own, not a task on the cooperative pool
-                // (TBX-5346, TBX-5325, TBX-5308 S-F13).
+                //
                 //
                 // `handleConnection` reads with a blocking `read(2)`. Run inside `Task.detached`
                 // that read held one of the cooperative pool's threads (about one per core)
@@ -708,7 +708,7 @@ public struct POSIXTransport: ServerTransport {
     /// After answering an upload before its body has all arrived: stop sending, then read and
     /// discard what is still on its way for a bounded while before the close. Closing with unread
     /// data resets the connection, and nginx (request buffering off) then fails its next write
-    /// upstream with EPIPE and answers 502 in place of the 401, 404, 408 or 413 (TBX-1000000496
+    /// upstream with EPIPE and answers 502 in place of the 401, 404, 408 or 413 (an internal task
     /// D-15; seen through nginx 1.31.6 in the share-player walk). Ends at the peer's own close,
     /// after `seconds`, or after `maximumBytes`, whichever comes first.
     static func lingerAfterEarlyAnswer(_ fd: Int32, seconds: TimeInterval = 5, maximumBytes: Int = 32 << 20) {
@@ -728,7 +728,7 @@ public struct POSIXTransport: ServerTransport {
     /// `SO_RCVTIMEO`, so a silent peer cannot hold this connection (and the thread running it)
     /// open for ever.
     ///
-    /// Still here after TBX-5346 moved the read off the cooperative pool, and still the thing
+    /// Still here after an internal task moved the read off the cooperative pool, and still the thing
     /// that ends a silent connection: owning the thread means one silent peer no longer costs
     /// anybody else anything, but it does not make the peer go away.
     private static func setReadTimeout(_ fd: Int32, _ seconds: TimeInterval) {
@@ -772,7 +772,7 @@ public struct POSIXTransport: ServerTransport {
                 let count = deadline == nil ? remaining : min(remaining, 65_536)
                 // `send` with MSG_NOSIGNAL rather than `write`, so a peer that has gone away
                 // surfaces as EPIPE here instead of as a signal that kills the process
-                // (TBX-5308, S-F4). The flag is Linux-only; on Apple the `signal` call in
+                // The flag is Linux-only; on Apple the `signal` call in
                 // `start` is what carries the guarantee, which is why that call is not
                 // conditional and why no `SO_NOSIGPIPE` is set here — the Mac tests then
                 // exercise exactly the mechanism Linux ships with.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Adaptation of the historical TBX-9142 holder. No device commands or child jobs.
+# Adaptation of the historical an internal task holder. No device commands or child jobs.
 # Coordinator owns acceptance/restore; this shell keeps ordinary guards continuous.
 set -uo pipefail
 umask 077

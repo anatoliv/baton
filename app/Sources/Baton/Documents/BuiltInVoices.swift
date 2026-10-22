@@ -12,7 +12,7 @@ protocol BuiltInSpeechEngine: Sendable {
     func synthesizeWAV(text: String, voice: String, speed: Double?) async throws -> Data
 }
 
-/// The built-in "This Mac" voices (TBX-10854, board M7.5): Kokoro-82M on MLX, in Baton's own
+/// The built-in "This Mac" voices: Kokoro-82M on MLX, in Baton's own
 /// process, so a person with no voice server can still turn a document into an audiobook. Off
 /// until the 342 MB model is downloaded from Settings → Speech; English voices only.
 ///

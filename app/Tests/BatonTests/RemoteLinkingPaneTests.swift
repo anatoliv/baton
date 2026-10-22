@@ -2,7 +2,7 @@ import BatonAgentKit
 import XCTest
 @testable import Baton
 
-/// Settings → Remote after five wrong `/link` codes (C-3 follow-up, TBX-1000000504). Linking is
+/// Settings → Remote after five wrong `/link` codes (C-3 follow-up). Linking is
 /// then shut and the settings hold a burned code, so the pane must not offer it as the code to
 /// send; it says linking is paused until a new code is made.
 @MainActor

@@ -237,7 +237,7 @@ public final class MusicLibraryStore {
     ///
     /// This used to be load-bearing for a second reason: the signed URL carried a fresh salt
     /// each build, so without the cache `AsyncImage` saw a new URL every render and refetched.
-    /// Since TBX-5359 the salt is stable per server, so a rebuilt URL is byte-identical and
+    /// Since an internal task the salt is stable per server, so a rebuilt URL is byte-identical and
     /// the cache is an optimisation rather than the thing holding the image still.
     @ObservationIgnored private var coverURLCache: [String: URL] = [:]
 
@@ -334,7 +334,7 @@ public final class MusicLibraryStore {
     // MARK: - Search + browse
 
     /// The same search as `search(_:)`, returned rather than kept, for a picker that must not
-    /// change what the Search screen shows (the alarm's "What to play", TBX-1000000112).
+    /// change what the Search screen shows (the alarm's "What to play").
     public func searchResults(for query: String) async -> NavidromeSearchResults {
         if isDemo { return demoResults(query) }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)

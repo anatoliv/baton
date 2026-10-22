@@ -19,7 +19,7 @@ final class DurationVisualUITests: XCTestCase {
         // menu: the first attempt tapped a Picker row that never matched, so Albums
         // stayed in grid and the row this pass exists to check went unverified.
         //
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         // NOTE (found while converting, not fixed here — out of this card's scope): the real
         // @AppStorage key for the album layout is `tonebox.music.albumLayout`
         // (`BrowseScreen.album.layoutKey`); `baton.albums.style` is a stale key nothing reads

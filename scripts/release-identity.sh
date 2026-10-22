@@ -3,7 +3,7 @@
 # macOS release identity guard — a shipped Baton.app must name the commit it was
 # built from, and must refuse to exist if it cannot.
 #
-# WHY THIS EXISTS (TBX-5101, 2026-09-07). An estate audit asked a simple question of
+# WHY THIS EXISTS. An estate audit asked a simple question of
 # the live Mac build and could not answer it: which revision is 0.17.12 built from?
 # The evidence available was a tag (v0.17.12 -> 83ccbe9d) and an appcast advertising
 # 0.17.12/97. Neither is proof. A tag is a movable pointer created by whoever ran
@@ -33,7 +33,7 @@
 #     production run — see macrel_assert_production_ready — because a commit stamped
 #     into an app built from uncommitted edits is a false claim, not an identity.
 #
-# This is the same shape as ios/scripts/release-guard.sh (TBX-5058), deliberately:
+# This is the same shape as ios/scripts/release-guard.sh, deliberately:
 # the iPhone side already learned that the only check a working tree cannot lie about
 # is reading the version back out of what was actually compiled. The Mac needed the
 # same check plus the commit, since the Mac ships to a self-hosted appcast where

@@ -1,6 +1,6 @@
 import XCTest
 
-/// TBX-5123's headline outcome, walked: **Settings → Set Up from a Mac → an exported file →
+/// An internal task headline outcome, walked: **Settings → Set Up from a Mac → an exported file →
 /// the checks run in the same flow → the Friend tab is there when the sheet is done.**
 ///
 /// Everything about this card has so far been argued from the code. The file it imports is a
@@ -28,7 +28,7 @@ final class MacImportEvidenceTests: XCTestCase {
         continueAfterFailure = false
         try XCTSkipIf(fileName.isEmpty || passphrase.isEmpty, "no planted export supplied")
         app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"

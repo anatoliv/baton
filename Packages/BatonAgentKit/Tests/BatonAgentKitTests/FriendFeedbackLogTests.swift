@@ -99,7 +99,7 @@ final class FriendFeedbackLogTests: XCTestCase {
         XCTAssertEqual(answered.resolution, "answered")
     }
 
-    // MARK: - The move onto VersionedStore (S-F14 / TBX-5354)
+    // MARK: - The move onto VersionedStore (S-F14)
 
     /// Exactly what the pre-`VersionedStore` `save()` wrote: a raw array, no envelope.
     ///

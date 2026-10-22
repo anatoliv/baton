@@ -3,7 +3,7 @@ import XCTest
 import BatonSubsonicModels
 @testable import BatonPlaybackKit
 
-/// The AVPlayer deck's item lifecycle against seeks and status (TBX-1000000506, C1-13, C1-14).
+/// The AVPlayer deck's item lifecycle against seeks and status.
 @MainActor
 final class DeckSeekGenerationTests: XCTestCase {
     private func wait(_ seconds: Double, until condition: () -> Bool) async throws {
@@ -68,7 +68,7 @@ final class DeckSeekGenerationTests: XCTestCase {
     /// A seek that did not land is owed a retry when the item reports seekable ranges, but KVO
     /// reports only a change. When the ranges were already known before the failed completion
     /// parked the retry, nothing retried it while playing, and the deck's clock stayed frozen
-    /// at the target over audio from 0:00: the TBX-1000000492 symptom (review finding).
+    /// at the target over audio from 0:00: the symptom (review finding).
     func testARetryOwedWhileRangesAreAlreadyKnownStillHappensAndTheClockRuns() async throws {
         let fixture = try XCTUnwrap(Bundle.module.url(forResource: "Fixtures/stream-fixture.mp3", withExtension: nil))
         let deck = AVPlayerDeck()

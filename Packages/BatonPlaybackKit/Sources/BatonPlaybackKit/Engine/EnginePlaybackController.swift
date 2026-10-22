@@ -1065,7 +1065,7 @@ public final class EnginePlaybackController {
         // Nothing will read this track's stream again: the host's answer to `.error` is a
         // fresh load. Leaving the source up kept its download running to the end of the
         // file, a whole 128 MB one after the live seek test, in the gate run where every
-        // streaming test that followed started slowly (TBX-7506, TBX-7480).
+        // streaming test that followed started slowly.
         teardownDeck(activeDeck)
         teardownDeck(otherDeck)
         state = .error(message)

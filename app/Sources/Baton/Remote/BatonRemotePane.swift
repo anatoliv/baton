@@ -31,7 +31,7 @@ struct BatonRemotePane: View {
             RemoteSettingsForm(service: service)
         } else {
             // `RemoteControlService` is built once, at launch, for the app's whole lifetime
-            //, so this should not be reachable in a real run. Kept as a fallback
+            // so this should not be reachable in a real run. Kept as a fallback
             // for the SwiftUI preview and any future path that renders this pane without the
             // environment wired, rather than crashing or showing a blank form.
             Form {

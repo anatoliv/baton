@@ -8,7 +8,7 @@ import BatonSubsonicModels
 /// `FriendLedgerTests` proves the merge rule. This proves the half that actually breaks: that
 /// the stores put their state *into* the ledger and take the merged answer back *out* of it.
 /// A correct merge over a document nobody publishes to, or nobody adopts from, is the exact
-/// defect shape this repo hit four times on 2026-09-07 — TBX-5114's settings that arrived and
+/// defect shape this repo hit four times on 2026-09-07 — an internal task settings that arrived and
 /// were never read, and the keys written under one name and read under another.
 @MainActor
 final class FriendSyncTests: XCTestCase {

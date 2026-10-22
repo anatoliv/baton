@@ -17,7 +17,7 @@ public actor DeviceLink {
         /// and this crosses an actor boundary, so the bytes travel instead of the
         /// dictionary — they were about to become bytes on the wire anyway.
         public let argumentsJSON: Data
-        /// When the tool call that produced this command was made (TBX-5308, S-F12).
+        /// When the tool call that produced this command was made.
         public let createdAt: Date
         /// How long it is worth delivering — the same wait the caller is giving it.
         ///
@@ -50,7 +50,7 @@ public actor DeviceLink {
 
     /// Commands waiting for a device to pick up.
     ///
-    /// Bounded and aged, both (TBX-5308, S-F12). A command used to be appended here and never
+    /// Bounded and aged, both. A command used to be appended here and never
     /// removed by anything but a poll: the 20-second `dispatch` wait expired the *result* slot and
     /// left the command itself in the queue for ever. So the agent said "the device didn't answer
     /// in time" and the phone, polling a minute later, started playing — and a phone that had been
@@ -82,7 +82,7 @@ public actor DeviceLink {
 
     /// Polls this process has served, and the most waiters it has ever held at once.
     ///
-    /// The empty poll is invisible in the request log on purpose (TBX-4045: a 25-second hold per
+    /// The empty poll is invisible in the request log on purpose (a 25-second hold per
     /// device is ~7,000 lines a day), and that is the only trace `awaitCommand` leaves — a poll
     /// logs 200 only when it carries a command, which needs a `/v1/agent` turn to exist. So over
     /// seven days and 25,118 lines `/v1/device/poll` appeared **zero** times, identically whether
@@ -92,7 +92,7 @@ public actor DeviceLink {
     private var commandsDelivered = 0
     /// The high-water mark of `waitingDevices.count`, and the point of the whole exercise.
     ///
-    /// The TBX-4029 leak needed **two waiters parked at the same time**; with one it cannot fire.
+    /// The leak needed **two waiters parked at the same time**; with one it cannot fire.
     /// So `grep -c MISUSE` → 0 only means something next to a peak of 2 or more — below that the
     /// zero says the bug was never given the chance, not that it is fixed. That distinction is
     /// exactly what the 2026-09-05 audit could not make.

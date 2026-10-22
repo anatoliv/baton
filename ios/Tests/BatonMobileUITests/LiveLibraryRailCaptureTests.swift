@@ -25,7 +25,7 @@ final class LiveLibraryRailCaptureTests: XCTestCase {
         continueAfterFailure = false
         try XCTSkipIf(serverURL.isEmpty || secret.isEmpty, "live server credentials not provided")
         app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         // Artists defaults to list; the grid is the layout that collapsed to one column.
         app.launchEnvironment["tonebox.music.artistLayout"] = "grid"

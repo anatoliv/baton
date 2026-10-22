@@ -48,7 +48,7 @@ enum WidgetFreshness {
 
     /// The window a playing Live Activity's bar animates across: from when the track started
     /// to when it ends, so the bar opens at the elapsed time rather than empty
-    /// (TBX-1000000480 B-5). Clamped so a stream reporting a nonsense duration cannot leave a
+    /// Clamped so a stream reporting a nonsense duration cannot leave a
     /// bar creeping for hours.
     static func progressRange(now: Date, elapsed: TimeInterval, duration: TimeInterval) -> ClosedRange<Date> {
         let remaining = max(1, min(duration - elapsed, 60 * 60 * 6))

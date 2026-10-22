@@ -5,8 +5,8 @@ import Foundation
 import XCTest
 @testable import Baton
 
-/// TBX-11017: a book made with this Mac's own voices goes to the Baton server, so the iPhone
-/// adopts it through the TBX-10985 path. The renderer and encoder are the real ones (as in
+/// A book made with this Mac's own voices goes to the Baton server, so the iPhone
+/// adopts it through the path. The renderer and encoder are the real ones (as in
 /// `DocumentLibraryTests`); the Baton server is a fake that keeps what it is sent with the
 /// gateway's rules (`BookRoutes.receiveBook`, `receiveChapter`, `receiveTiming`): the id is the
 /// book's content, a chapter is kept only when its digest matches, and an uploaded job's chapters
@@ -41,7 +41,7 @@ final class MacBookUploadTests: XCTestCase {
             set { lock.withLock { _away = newValue } }
         }
 
-        /// A gateway from before TBX-11017: `PUT …/upload` reads as a bad book id.
+        /// A gateway from before an internal task: `PUT …/upload` reads as a bad book id.
         var older: Bool {
             get { lock.withLock { _older } }
             set { lock.withLock { _older = newValue } }
@@ -176,7 +176,7 @@ final class MacBookUploadTests: XCTestCase {
     /// The owner's report: a book made with the Mac's own voices reaches the Baton server with
     /// every chapter, its digest and its read-along timing, listed under its document, so the
     /// iPhone adopts it. Each part goes once; the Mac neither keeps a record of having "sent" it
-    /// in TBX-10985's sense nor adopts its own book back from the listing.
+    /// in an internal task sense nor adopts its own book back from the listing.
     func testABookMadeOnThisMacGoesToTheBatonServerChapterByChapterOnce() async throws {
         let server = FakeBatonServer()
         let clippings = clippingStore()
@@ -253,7 +253,7 @@ final class MacBookUploadTests: XCTestCase {
         XCTAssertEqual(puts(server), sent, "sent once only")
     }
 
-    /// TBX-11088, seen on a probe instance: a round that ran after the job became ready but
+    /// An internal task, seen on a probe instance: a round that ran after the job became ready but
     /// before `refresh` moved its chapters into Clippings found none of them on this Mac and
     /// finished the book with no chapter sent, so the Baton server kept it with every chapter
     /// queued for ever and the iPhone waited on chapter 1. The book is finished only once its
@@ -296,7 +296,7 @@ final class MacBookUploadTests: XCTestCase {
         XCTAssertEqual(server.job(id)?.readyChapters, book.chapters.count)
     }
 
-    /// TBX-11092: what a build before TBX-11088 left behind. The record says the book is done with
+    /// What a build before an internal task left behind. The record says the book is done with
     /// no chapter sent, the Baton server holds the shaped book with every chapter queued, and the
     /// iPhone waits on chapter 1 for ever. The next round (Baton coming to the front, a relaunch)
     /// reopens it, asks the Baton server what it has, sends the chapters, and only then finishes.
@@ -437,7 +437,7 @@ final class MacBookUploadTests: XCTestCase {
         XCTAssertNil(server.job(id), "a book deleted there is not sent again")
     }
 
-    /// TBX-10985's rules for a book made here: Remove from This Mac keeps the Baton server's copy
+    /// An internal task rules for a book made here: Remove from This Mac keeps the Baton server's copy
     /// for the iPhone and does not adopt it back; Delete Everywhere deletes it there too.
     func testRemoveFromThisMacKeepsTheServerCopyAndDeleteEverywhereDeletesIt() async throws {
         let server = FakeBatonServer()

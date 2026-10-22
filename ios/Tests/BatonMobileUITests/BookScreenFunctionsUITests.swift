@@ -26,7 +26,7 @@ final class BookScreenFunctionsUITests: XCTestCase {
         // chapter 1 is still playing when the walk ends: with 30-second chapters chapter 2
         // started as the sleep timer's menu opened, the menu stayed up and ignored the tap on
         // "15 minutes", and the run failed on a toolbar button the open menu hid
-        // (TBX-1000000045, 2026-10-17).
+        //
         server = try FakeHomeServer(speech: name.contains("RealSpeech"), chapterSeconds: 120)
         server.setReadyOnSubmit(3)
         server.setVoices(["kokoro:af_heart", "kokoro:am_adam", "kokoro:bf_emma"])

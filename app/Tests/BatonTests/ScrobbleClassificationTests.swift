@@ -3,7 +3,7 @@ import BatonSubsonicKit
 import Testing
 @testable import Baton
 
-/// : the transient-vs-permanent split that keeps an offline session from destroying
+/// The transient-vs-permanent split that keeps an offline session from destroying
 /// the scrobbles the durable queue exists to protect.
 @MainActor
 @Suite("Scrobble failure classification (W-08)")

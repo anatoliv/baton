@@ -8,7 +8,7 @@ import Foundation
 /// playhead, so pressing "Resume" on a book that was already playing jumped it back, and there
 /// was no way to pause it from the book. Now, while one of the book's chapters is the one in
 /// the player, the button is the player's own Pause or Resume and touches nothing else; only a
-/// book that is not in the player is queued from its place (with the TBX-10993 place pull and
+/// book that is not in the player is queued from its place (with the place pull and
 /// the "Previously…" offer).
 public enum BookTransport {
     public enum Action: Equatable, Sendable {
@@ -38,7 +38,7 @@ public enum BookTransport {
     }
 
     /// The source a book plays under, so the shared collection rule (`CollectionPlayState`,
-    /// TBX-11066) knows it: one per book, by its document id. `.song` rather than a kind of its
+    /// An internal task) knows it: one per book, by its document id. `.song` rather than a kind of its
     /// own, because the source travels in the saved and handed-off queue, and a kind an older
     /// build does not know would fail to decode there.
     public static func source(documentID: String, title: String) -> StreamingPlaybackController.QueueSource {

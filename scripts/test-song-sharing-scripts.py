@@ -132,27 +132,100 @@ class AdoptionTests(unittest.TestCase):
 
 
 class OriginTests(unittest.TestCase):
-    def probe(self, response="Conduct <em>your</em> music\nBATON_SITE_STATUS:200", binding="192.0.2.10", rc=0):
+    # The stub ssh answers the routing probe (BATON_SITE_STATUS), and the edge-gate pair
+    # a request carrying a forged CF-Connecting-IP gets PROBE_FORGED, the
+    # plain one PROBE_PLAIN, each as the bare status curl -w prints.
+    def probe(self, response="Conduct <em>your</em> music\nBATON_SITE_STATUS:200", binding="192.0.2.10", rc=0,
+              forged="403", plain="200", script="scripts/publish-site.sh", env=None):
         with tempfile.TemporaryDirectory() as directory:
             ssh = Path(directory) / "ssh"
             calls = Path(directory) / "calls.jsonl"
             ssh.write_text("#!/usr/bin/env python3\nimport json, os, sys\n"
                            "with open(os.environ['PROBE_CALLS'], 'a') as f: f.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-                           "if 'docker inspect' in sys.argv[-1]:\n"
+                           "command = sys.argv[-1]\n"
+                           "if 'docker inspect' in command:\n"
                            "    print(os.environ['PROBE_BINDING'])\n"
+                           "elif 'CF-Connecting-IP' in command:\n"
+                           "    sys.stdout.write(os.environ['PROBE_FORGED'])\n"
+                           "elif 'BATON_SITE_STATUS' not in command:\n"
+                           "    sys.stdout.write(os.environ['PROBE_PLAIN'])\n"
                            "else:\n"
                            "    print(os.environ['PROBE_RESPONSE'])\n"
                            "    sys.exit(int(os.environ['PROBE_RC']))\n")
             ssh.chmod(0o755)
-            out = subprocess.run(["bash", str(ROOT / "scripts/publish-site.sh")],
+            out = subprocess.run(["bash", str(ROOT / script)],
                                  env={**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
                                       "ORIGIN_CHECK_ONLY": "1", "PROBE_CALLS": str(calls),
-                                      "PROBE_BINDING": binding, "PROBE_RESPONSE": response, "PROBE_RC": str(rc)},
+                                      "PROBE_BINDING": binding, "PROBE_RESPONSE": response, "PROBE_RC": str(rc),
+                                      "PROBE_FORGED": forged, "PROBE_PLAIN": plain, **(env or {})},
                                  capture_output=True, text=True, timeout=15)
             recorded = [json.loads(line) for line in calls.read_text().splitlines()]
-            self.assertEqual(len(recorded), 3 if binding else 1)
+            if script == "scripts/publish-site.sh":
+                # Routing: one binding read and one request per host. Gate: another binding read
+                # and two requests per host.
+                self.assertEqual(len(recorded), 8 if binding else 2)
             self.assertTrue(all("docker inspect" in row[-1] or "curl " in row[-1] for row in recorded))
             return out, recorded
+
+    def gate_calls(self, calls):
+        return [row[-1] for row in calls if "curl " in row[-1] and "BATON_SITE_STATUS" not in row[-1]]
+
+    def test_edge_gate_refusing_a_forged_address_passes(self):
+        out, calls = self.probe()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(out.stdout.count("the edge gate is on"), 2)
+        gate = self.gate_calls(calls)
+        self.assertEqual(len(gate), 4)
+        forged = [command for command in gate if "CF-Connecting-IP" in command]
+        self.assertEqual(len(forged), 2, "one forged request per host")
+        self.assertTrue(all("CF-Connecting-IP: 192.0.2.1" in command for command in forged))
+        self.assertTrue(all("--resolve 'batonmusic.app:443:192.0.2.10'" in command
+                            or "--resolve 'baton.tonebox.io:443:192.0.2.10'" in command for command in gate))
+        self.assertFalse(any("X-Edge-Auth" in command or "edge-auth" in command for command in gate),
+                         "the probe never carries or reads the gate's secret")
+
+    def test_edge_gate_serving_a_forged_address_fails(self):
+        # The control: the same probe with the gate rolled back (the forged request is served).
+        out, _ = self.probe(forged="200")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("The estate edge gate is off; E-9 is open", out.stderr)
+
+    def test_edge_gate_refusing_everything_is_unmeasured_not_a_pass(self):
+        # A 403 for both requests (an access list, an outage page) proves nothing about the gate.
+        out, _ = self.probe(forged="403", plain="403")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("the edge gate is unmeasured", out.stderr)
+        out, _ = self.probe(forged="000", plain="000")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("the edge gate is unmeasured", out.stderr)
+
+    def subnet_guard(self, live, rc=0):
+        """The real proxy_net subnet guard from publish-site.sh, run against a stub ssh."""
+        site = (ROOT / "scripts/publish-site.sh").read_text()
+        start = site.index('want_subnet="$(sed')
+        end = site.index('before deploying."', start) + len('before deploying."')
+        with tempfile.TemporaryDirectory() as directory:
+            ssh = Path(directory) / "ssh"
+            ssh.write_text("#!/bin/sh\nprintf '%s\\n' \"$PROBE_SUBNET\"\nexit $PROBE_RC\n")
+            ssh.chmod(0o755)
+            script = Path(directory) / "guard.sh"
+            script.write_text("set -euo pipefail\nfail() { echo \"FAIL: $*\" >&2; exit 1; }\nWEB01=stub-host\n"
+                              + site[start:end] + "\necho GUARD_PASSED\n")
+            return subprocess.run(["bash", str(script)], cwd=ROOT, capture_output=True, text=True, timeout=10,
+                                  env={**os.environ, "PATH": f"{directory}:{os.environ['PATH']}",
+                                       "PROBE_SUBNET": live, "PROBE_RC": str(rc)})
+
+    def test_trusted_subnet_must_be_proxy_nets(self):
+        # An internal task A3: default.conf trusts X-Real-IP from one subnet, which must be the live
+        # proxy_net's, or every visitor would become NPM's one address.
+        configured = re.findall(r"^\s*([0-9.]+/[0-9]+)\s+1;\s+# proxy_net$", (ROOT / "deploy/nginx/default.conf").read_text(), re.M)
+        self.assertEqual(len(configured), 1)
+        self.assertIn("GUARD_PASSED", self.subnet_guard(configured[0] + " ").stdout)
+        for live, rc in [("10.9.0.0/16", 0), ("", 0), (configured[0], 255)]:
+            out = self.subnet_guard(live, rc)
+            self.assertNotEqual(out.returncode, 0, (live, rc))
+            self.assertNotIn("GUARD_PASSED", out.stdout)
+            self.assertIn("proxy_net on stub-host is", out.stderr)
 
     def test_published_binding_and_both_hosts(self):
         out, calls = self.probe()

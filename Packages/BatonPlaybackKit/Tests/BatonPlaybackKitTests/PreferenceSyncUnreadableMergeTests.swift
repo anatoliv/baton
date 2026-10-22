@@ -1,7 +1,7 @@
 import XCTest
 @testable import BatonPlaybackKit
 
-/// A merged key whose value this build cannot read was merged as empty (TBX-1000000506, C-9):
+/// A merged key whose value this build cannot read was merged as empty:
 /// an unreadable local value was replaced by the remote one, and an unreadable remote value was
 /// written over with ours. Neither side is touched now.
 @MainActor

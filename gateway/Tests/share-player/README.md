@@ -27,7 +27,7 @@ It also answers one admission and one track with the transport's 503 `capacity` 
 checking that neither spends a play or drops the session, and, for a spawned service, plays a link
 extended while its page is open. `--mixtape-only` runs only this walk after the
 shared nginx checks.
-The full walk then opens a whole-book page (`/b/`, `book-page.mjs`, TBX-1000000132). It makes three
+The full walk then opens a whole-book page (`/b/`, `book-page.mjs`). It makes three
 6-second AAC chapters with ffmpeg and read-along text for the first, seals them under the
 `baton-book-1` keys and creates, uploads and finalizes the book through the real service routes
 (the spawned service runs with `BATON_SHARE_BOOKS=1`). It checks one `Referrer-Policy: no-referrer`
@@ -41,7 +41,7 @@ token, blocked storage, pending to ready, revoke reading as expired and clearing
 expired link, contrast and screenshots at 390 and 1280 px in light and dark. `--book-only` runs
 only this walk after the shared nginx checks, for a quicker loop.
 Last, the full walk opens the album and playlist page (`/b/` with a collection kind,
-`collection-page.mjs`, TBX-1000000485; the spawned service also runs with
+`collection-page.mjs`, an internal task; the spawned service also runs with
 `BATON_SHARE_COLLECTIONS=1`). It makes three 5-second songs as the apps seal music (AAC, 128 kbps,
 stereo, in an .m4a) and a small JPEG cover, seals them under the book keys as a `baton-collection-1`
 album (cover, track numbers 1, 2 and 4, one song by a guest artist) and a playlist (each song's
@@ -253,7 +253,7 @@ accepted; inherited service credentials are discarded. Keep a failed result and
 its exact cleanup uncertainty. A later successful runtime check does not replace
 the original renderer failure or certify production capacity.
 
-The October 4 TBX-8912 investigation found the preserved stalled listener's CDP
+The October 4 an internal task investigation found the preserved stalled listener's CDP
 `PipelineStatus::AUDIO_RENDERER_ERROR` (code 19), alongside media error 3 and a
 moving page timer. That identifies the audio renderer/output failure layer; its
 underlying system trigger and original browser version were not recorded. The

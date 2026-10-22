@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Every Baton ship path refuses a HEAD that origin/main does not contain. (TBX-7466, ESTATE E19)
+# Every Baton ship path refuses a HEAD that origin/main does not contain.
 #
 # The release kit's tests (scripts/release-kit/check.sh) prove the guard itself. This proves it is WIRED: it
 # runs the real entry points, unmodified, from a throwaway release clone whose HEAD is a
@@ -49,7 +49,7 @@ cp -R "$ROOT/scripts" "$SRC/scripts"
 cp -R "$ROOT/ios/scripts" "$SRC/ios/scripts"
 cp -R "$ROOT/gateway/deploy" "$SRC/gateway/deploy"
 cp "$ROOT/app/project.yml" "$SRC/app/project.yml"
-# publish.sh's associated-domain preflight (TBX-8693) reads these; it runs after the guard.
+# publish.sh's associated-domain preflight reads these; it runs after the guard.
 cp "$ROOT/app/Baton.entitlements" "$ROOT/app/Baton.Release.entitlements" "$SRC/app/"
 mkdir -p "$SRC/website/.well-known"
 cp "$ROOT/website/.well-known/apple-app-site-association" "$SRC/website/.well-known/apple-app-site-association"
@@ -58,7 +58,7 @@ cp "$ROOT/.gitignore" "$SRC/.gitignore"
 # publish-site checks that a site exists before reaching the main guard.
 # A minimal page keeps this fixture focused on the guard, with no asset links.
 mkdir -p "$SRC/website"
-# Stamped like the real pages, so its Content-Security-Policy is current (TBX-1000000503 E-10).
+# Stamped like the real pages, so its Content-Security-Policy is current.
 printf '<!doctype html>\n<head>\n<meta charset="utf-8">\n<title>Release guard fixture</title>\n' >"$SRC/website/index.html"
 BATON_SITE_DIR="$SRC/website" python3 "$SRC/scripts/stamp-site-assets.py" >/dev/null
 # Gitignored files in the copied dirs (a local env file, caches) never reach the commit.
@@ -160,7 +160,7 @@ for e in $ENTRIES; do
   fi
 done
 
-# --- HEAD is origin/main, but the working tree is not HEAD (TBX-1000000502 F-6, F-7) ------
+# --- HEAD is origin/main, but the working tree is not HEAD ------
 # The main guard checks the commit; publish-site.sh and publish-repo.sh copied the working
 # tree, so an uncommitted edit or an untracked file went out under a commit that lacks it.
 stamp_rel() { BATON_SITE_DIR="$REL/website" python3 "$REL/scripts/stamp-site-assets.py" >/dev/null; }

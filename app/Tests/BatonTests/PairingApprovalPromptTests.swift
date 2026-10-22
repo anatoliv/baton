@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// The "Link a device" pane's approval prompt must answer every ask (TBX-1000000504, A-10).
+/// The "Link a device" pane's approval prompt must answer every ask.
 /// The pane dropped its continuation, unanswered, when it showed a new code or closed, so the
 /// pairing host's approval task stayed suspended for the life of the app.
 @MainActor

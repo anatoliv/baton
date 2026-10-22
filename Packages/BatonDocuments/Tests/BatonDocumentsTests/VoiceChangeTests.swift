@@ -69,7 +69,7 @@ final class VoiceChangeTests: XCTestCase {
 }
 
 /// A book paused because its voice cannot be had is made again in another voice at once
-///. The renderer makes one book at a time, and a voice that keeps failing is
+/// The renderer makes one book at a time, and a voice that keeps failing is
 /// retried until it answers; cancelling the paused job only marked it, so its retry went on and
 /// the book in the new voice waited behind it until a relaunch. A voice server that is down, or
 /// an engine that refuses the voice, is the usual reason to change it, so this was the common case.

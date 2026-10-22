@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 @testable import BatonMobile
 
-/// The iPhone's Clippings filter goes through the shared search index (M8.9, TBX-10870) with the
+/// The iPhone's Clippings filter goes through the shared search index (M8.9) with the
 /// fields the list always searched: a clipping's title, its book's title, its source and its
 /// words. Accents and case are now ignored.
 @MainActor

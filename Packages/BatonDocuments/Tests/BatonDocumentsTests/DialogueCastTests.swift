@@ -54,7 +54,7 @@ final class DialogueCastTests: XCTestCase {
         XCTAssertEqual(looseQuotes[3].method, "alternation")
     }
 
-    /// TBX-10894: a title's full stop no longer ends the tag, and the verbs the held-out texts
+    /// A title's full stop no longer ends the tag, and the verbs the held-out texts
     /// use ("returned", "rejoined") are read as speech.
     func testATitledNameAfterTheVerbAndTheNewVerbsAreTags() {
         let bennets = [
@@ -77,7 +77,7 @@ final class DialogueCastTests: XCTestCase {
         XCTAssertEqual(DialogueCast.tagPhrases(after: "said St. John, smiling.", before: nil), ["St. John"])
     }
 
-    /// TBX-10894: a short beat about someone outside the two-person exchange brings them in, so
+    /// A short beat about someone outside the two-person exchange brings them in, so
     /// turn-taking stops guessing there (Austen, *Pride and Prejudice* ch. 2: Mrs. Bennet scolds
     /// Kitty after an exchange between Elizabeth and Mr. Bennet).
     func testABeatAboutSomeoneElseEndsTheExchange() {
@@ -100,7 +100,7 @@ final class DialogueCastTests: XCTestCase {
                      "Elizabeth by turn-taking before the fix; Mrs. Bennet in the book")
     }
 
-    /// TBX-10956: the caption under Gutenberg's illustration in *Pride and Prejudice* chapter I,
+    /// The caption under Gutenberg's illustration in *Pride and Prejudice* chapter I,
     /// in a Markdown copy of the book, is not a line of dialogue. The walk voiced it as Mrs.
     /// Bennet's. Speech that ends inside its marks stays speech, and so does a speech carried
     /// over from the paragraph before.
@@ -397,7 +397,7 @@ final class CastSheetGeneratorTests: XCTestCase {
         XCTAssertEqual(sheet.characters.map(\.aliases), [[], []])
     }
 
-    /// TBX-10926: an alias that is another character's name goes, and a repeated alias is kept once.
+    /// An alias that is another character's name goes, and a repeated alias is kept once.
     func testAnAliasThatIsAnotherCharactersNameIsDropped() {
         let reply = #"{"characters": [{"name": "Mary", "gender": "f", "aliases": ["tom", "his mother", "His Mother"]}, {"name": "Tom", "gender": "m", "aliases": ["mary"]}]}"#
         let sheet = CastSheetGenerator.parse(reply, document: doc)
@@ -405,7 +405,7 @@ final class CastSheetGeneratorTests: XCTestCase {
         XCTAssertEqual(sheet.characters.map(\.aliases), [["his mother"], []])
     }
 
-    /// TBX-10894: ways of addressing someone are not names for them. "my dear" as Mrs. Bennet's
+    /// Ways of addressing someone are not names for them. "my dear" as Mrs. Bennet's
     /// phrase would make every "my dear" a line spoken to her; the home model listed it until
     /// its reply was cut off.
     func testWaysOfAddressingSomeoneAreDroppedAndTheListIsBounded() {

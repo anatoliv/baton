@@ -125,7 +125,7 @@ final class HomeServerPronunciationTests: XCTestCase {
         XCTAssertEqual(clippings.item(documentID: book.documentID, chapterIndex: 0)?.id, chapterOne.id)
         XCTAssertNil(MusicBooksView.statusLine(after))
         let downloads = fake.seen.filter {
-            $0.hasPrefix("GET /v1/books/\(record.jobID)/chapters/") && !$0.hasSuffix("/timing")  // read-along timing, TBX-10960
+            $0.hasPrefix("GET /v1/books/\(record.jobID)/chapters/") && !$0.hasSuffix("/timing")  // read-along timing, an internal task
         }
         XCTAssertEqual(downloads, ["GET /v1/books/\(record.jobID)/chapters/2"], "only the corrected chapter comes down")
         XCTAssertEqual(after.position?.seconds, 30)

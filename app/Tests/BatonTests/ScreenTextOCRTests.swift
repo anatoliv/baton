@@ -133,7 +133,7 @@ final class ScreenTextOCRTests: XCTestCase {
 
 /// The case the card actually names, and the one no synthetic test had covered: **columns**.
 ///
-/// TBX-3830's "done when" is "a PDF page in Preview reads in the right order", and a great many
+/// An internal task "done when" is "a PDF page in Preview reads in the right order", and a great many
 /// PDFs worth listening to are two-column. `assemble` groups fragments whose vertical centres are
 /// close into one visual line and reads them left to right, which is right for a single column
 /// and reads *across the gutter* on two. The failure is the bad kind: fluent, plausible sentences

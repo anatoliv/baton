@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Drives scripts/check-untracked-credentials.sh against throwaway repositories with
-# planted FAKE credentials. No real credential is read or needed. (TBX-7289)
+# planted FAKE credentials. No real credential is read or needed.
 #
 # The first case reproduces the state that was found on 2026-09-23: the .gitignore of
 # that day, which named only the two Crashbox.local.xcconfig files, and an upload

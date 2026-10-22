@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-/// : the Agents settings pane reads the running server's mcp.json discovery file. Pin the parse.
+/// The Agents settings pane reads the running server's mcp.json discovery file. Pin the parse.
 final class AgentAccessInfoTests: XCTestCase {
     private func writeDiscovery(_ json: String) throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("agent-\(UUID().uuidString)")

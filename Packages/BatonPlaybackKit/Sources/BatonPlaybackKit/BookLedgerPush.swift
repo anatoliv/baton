@@ -5,7 +5,7 @@ import Foundation
 ///
 /// The book ledger travelled only when a device synced on its own: at launch, on coming to the
 /// front, or on the ten-minute heartbeat. Stop on the Mac, pick up the phone, and Play started
-/// from where the book had been up to ten minutes earlier; the TBX-10974 walk measured 8 to 10
+/// from where the book had been up to ten minutes earlier; the walk measured 8 to 10
 /// minutes for a handoff. So both apps now ask for a sync when the transport pauses or stops, and
 /// when the app leaves the foreground.
 ///

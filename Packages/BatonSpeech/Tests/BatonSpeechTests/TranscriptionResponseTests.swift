@@ -7,7 +7,7 @@ import XCTest
 /// model list looks like from two servers that disagree about its shape.
 ///
 /// **The multipart body builder is deliberately not here.** `multipartBody` and
-/// `writeMultipartBody` are being changed under TBX-5351 at the same time as this card, and
+/// `writeMultipartBody` are being changed under an internal task at the same time as this card, and
 /// two suites asserting the same wire format byte for byte, written an hour apart, is how
 /// one of them ends up merged as a stale contradiction of the other. The wire format is
 /// already asserted in the macOS target's `TranscriptionServiceTests`; that card owns it.

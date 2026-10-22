@@ -83,7 +83,7 @@ final class VoiceInput {
     #if DEBUG
     /// Suppresses the speech-recognition permission dialog under UI test. See `start()`.
     ///
-    /// Was a bare `-uitestSkipSpeechAuthorization` launch argument. TBX-5336:
+    /// Was a bare `-uitestSkipSpeechAuthorization` launch argument. An internal task:
     /// `XCUIApplication.launchArguments` drops a whole `-key value` group about one launch in
     /// four, so the UI tests that need this now set it through `app.launchEnvironment`
     /// instead, read here via `ProcessInfo.processInfo.environment`.

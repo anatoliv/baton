@@ -3,9 +3,9 @@ import BatonSubsonicKit
 import BatonSubsonicModels
 
 /// Queue-advance decision logic, extracted from the `StreamingPlaybackController` monolith as the
-/// first step of the  decomposition. These are pure, side-effect-free functions of
+/// first step of the decomposition. These are pure, side-effect-free functions of
 /// (current index, count, repeat mode) — no player, queue, or actor state — so they're trivially
-/// unit-testable (see `LoudnessAdvanceCharacterizationTests`, ) and safe to reason about in
+/// unit-testable (see `LoudnessAdvanceCharacterizationTests`) and safe to reason about in
 /// isolation. They stay static members of the controller (declared here via an extension) so every
 /// existing `Self.onTrackEnd(...)` call site is unchanged.
 extension StreamingPlaybackController {

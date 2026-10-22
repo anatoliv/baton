@@ -145,7 +145,9 @@ class MixtapeUIActions:
             raise ValueError("Unknown command")
         identifier, key = self.selected
         if name == "wrong": key = "AAAAAAAAAAAAAAAAAAAAAA" if key != "AAAAAAAAAAAAAAAAAAAAAA" else "AQEBAQEBAQEBAQEBAQEBAQ"
-        if name == "unknown": identifier = "______________________" if identifier != "______________________" else "AAAAAAAAAAAAAAAAAAAAAA"
+        # A canonical 16-byte id the service never issued; 22 underscores is not canonical, so the
+        # app read it as a malformed link rather than an unknown one.
+        if name == "unknown": identifier = "_____________________w" if identifier != "_____________________w" else "AAAAAAAAAAAAAAAAAAAAAA"
         if name == "incomplete": key = None
         if name == "pending":
             if self.pending is None: raise ValueError("Qualified pending fixture required")

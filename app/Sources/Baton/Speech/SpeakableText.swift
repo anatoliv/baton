@@ -43,7 +43,7 @@ enum SpeakableText {
     /// Strip escape codes, then redact every secret either way of reading them finds.
     ///
     /// Stripped to nothing, a code between a word and a secret ("export\e[0mAKIA…") glues the
-    /// key to the word, and the boundary-anchored pattern misses it (TBX-1000000504, the A-13
+    /// key to the word, and the boundary-anchored pattern misses it (the A-13
     /// residual). Stripped to a space, it splits a secret the code sits *inside*, which is what
     /// `grep --color` does to the part it matched ("\e[01;31m\e[Kghp_\e[m\e[K…"). Neither reading
     /// may win outright: keeping the one that found more let two glued keys outvote a grep match,

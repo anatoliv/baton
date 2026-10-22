@@ -323,6 +323,23 @@ extension HelpWhatsNewRelease {
     /// the shipping version, and `scripts/check-release.sh` blocks a release without one.
     static let all: [HelpWhatsNewRelease] = [
         HelpWhatsNewRelease(
+            version: "0.20.16",
+            date: "October 2026",
+            highlight: "Your home server's password stays on your home network.",
+            changes: [
+                HelpWhatsNewChange(.improved,
+                    "Baton never sends your home server's password over an unprotected connection to an address on "
+                    + "the internet, and Settings tells you why when it holds back. Your home network, Tailscale and "
+                    + "named servers work as before."),
+                HelpWhatsNewChange(.improved,
+                    "AI assistants connected to Baton no longer see where your files live or the addresses of your "
+                    + "podcast feeds. Baton gives them private song ids instead, and old ids keep working for now."),
+                HelpWhatsNewChange(.fixed,
+                    "An album or playlist link you ended still shows how many songs it had in Shared Links, "
+                    + "instead of 0 songs."),
+            ]
+        ),
+        HelpWhatsNewRelease(
             version: "0.20.15",
             date: "October 2026",
             highlight: "Downloads and podcasts pick up where you left off.",

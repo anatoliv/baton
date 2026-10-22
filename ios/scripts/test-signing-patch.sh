@@ -8,7 +8,7 @@
 # The patch inserts CODE_SIGN_IDENTITY and a PROVISIONING_PROFILE_SPECIFIER per
 # target. Commit 2914b744 committed that transient edit into project.yml, so those
 # keys are in the tracked file today and inserting them blind gave every release
-# since 0.16.10 a project.yml holding each key twice (TBX-5066). The patch now
+# since 0.16.10 a project.yml holding each key twice. The patch now
 # rewrites a key that is present instead of adding a second copy.
 #
 # The case that matters most is the last one: a patch that stops inserting is worse

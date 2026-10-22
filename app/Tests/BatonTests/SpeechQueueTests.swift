@@ -40,7 +40,7 @@ final class SpeechQueueTests: XCTestCase {
     ///
     /// `.accessory` hides the Dock icon and the app menu but **not** a `MenuBarExtra`, which is a
     /// separate scene and is exactly what an accessory app still shows. A release died on that
-    /// gap after TBX-3862 was thought fixed, and the diagnostic named `BatonMenuBarContent` in
+    /// gap after an internal task was thought fixed, and the diagnostic named `BatonMenuBarContent` in
     /// the backtrace. The scene is now omitted under tests; this asserts the signal that decides
     /// it, since a wrong answer here silently restores a Quit button that ends gate runs.
     func testTheTestHostKnowsItIsATestHost() {

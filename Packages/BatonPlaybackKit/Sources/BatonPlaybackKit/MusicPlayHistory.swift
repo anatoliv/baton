@@ -110,7 +110,7 @@ public final class MusicPlayHistory: LocalListenRecording {
 
     /// The last `limit` distinct tracks played, most recent first. Stops reading the archive as
     /// soon as it has them, so a lifetime of listens costs nothing here (the alarm picker's
-    /// Recently played, TBX-1000000410).
+    /// Recently played).
     public func recentlyPlayed(limit: Int) -> [NavidromeSong] {
         guard limit > 0 else { return [] }
         var seen = Set<String>()

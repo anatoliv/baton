@@ -3,7 +3,7 @@ import Foundation
 import XCTest
 @testable import Baton
 
-/// Settings > Storage, the Home Server section (M6.4, TBX-10850): what it shows for a listing read
+/// Settings > Storage, the Home Server section (M6.4): what it shows for a listing read
 /// through `HomeServerBooks.listing()` from a gateway's `GET /v1/books` answer, its footer, and
 /// what it says when no home server is set up, while it asks, and when the asking fails.
 @MainActor

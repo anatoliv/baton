@@ -80,7 +80,7 @@ public struct FFmpegMuxer: AudioMuxing {
 
     /// Runs ffmpeg (or `executable`) and waits for it on a thread of its own, not the cooperative
     /// pool: a run lasts as long as an encode, and a pool thread blocked that long is one the
-    /// gateway's other work cannot have (TBX-1000000496 D-19).
+    /// gateway's other work cannot have.
     @discardableResult
     private func run(_ arguments: [String], executable: String? = nil) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in

@@ -5,7 +5,7 @@ import BatonShareKit
 import BatonSubsonicKit
 @testable import BatonMobile
 
-/// An iPhone book as Share… sees it for a whole-book link (TBX-1000000132, `specs/book-sharing.md`
+/// An iPhone book as Share… sees it for a whole-book link (`specs/book-sharing.md`
 /// Phase 2): every chapter must be on the phone, the one that is not is named, and each chapter's
 /// read-along timing is found by its own index and carried in the book format's shape.
 @MainActor

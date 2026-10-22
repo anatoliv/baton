@@ -1,7 +1,7 @@
 import Foundation
 
 /// What every device agrees the music friend has been told, and what it has been corrected on
-///.
+///
 ///
 /// **Why a ledger and not the files themselves.** `SettingsTransfer` carries
 /// `remote-memory.json` and `music-friend-learned.json` wholesale, which is right for a

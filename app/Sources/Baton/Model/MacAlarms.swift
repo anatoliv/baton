@@ -4,7 +4,7 @@ import BatonSubsonicKit
 import Foundation
 import SwiftUI
 
-/// The Mac's Alarm and Timer (TBX-11171, specs/alarm-and-timer.md). macOS has no AlarmKit for
+/// The Mac's Alarm and Timer. macOS has no AlarmKit for
 /// apps, so Baton's own clock is the alarm while it runs (it lives in the menu bar), and a
 /// scheduled notification stands in for when it does not. The ringing card floats over every
 /// Space, as the speaking HUD does.

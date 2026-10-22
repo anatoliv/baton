@@ -1,7 +1,7 @@
 import XCTest
 @testable import BatonSubsonicKit
 
-/// A playlist rewrite in several requests is not one transaction (TBX-1000000506, C-17). The
+/// A playlist rewrite in several requests is not one transaction. The
 /// first request replaces the playlist with its first batch, so a later batch failing used to
 /// leave the playlist cut down to that batch.
 final class PlaylistRewriteRollbackTests: XCTestCase {

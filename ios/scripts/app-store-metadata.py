@@ -383,7 +383,7 @@ def command_push(args) -> int:
     finally:
         # In a `finally` because a later PATCH can fail after an earlier one landed, and a
         # snapshot that misses the landed one makes the next check or push call Baton's own
-        # write drift and refuse. (TBX-1000000480 B-13)
+        # write drift and refuse.
         if wrote and not args.dry_run:
             # Re-read rather than assuming the PATCH did what was asked. Apple normalises some
             # fields (whitespace in keywords, for one), so the snapshot has to record what Apple

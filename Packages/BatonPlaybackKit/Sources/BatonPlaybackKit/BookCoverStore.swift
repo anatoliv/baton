@@ -160,7 +160,7 @@ public final class BookCoverStore {
 
     /// The home server agrees with this device about the book's cover, as of its stamp. After a
     /// push, `pushed` says what was sent: if the cover here changed while it was on its way, the
-    /// home server's stamp is remembered but the new cover still needs sending (TBX-11064 review:
+    /// home server's stamp is remembered but the new cover still needs sending (review:
     /// a cover chosen during an upload was otherwise marked sent and never went).
     public func markSynced(documentID: String, jobID: String, serverChangedAt: Date?, serverRevision: Int? = nil,
                            pushed: Pushed? = nil) {

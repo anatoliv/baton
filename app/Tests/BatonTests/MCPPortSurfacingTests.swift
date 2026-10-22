@@ -3,7 +3,7 @@ import Network
 import BatonSubsonicKit
 @testable import Baton
 
-/// TBX-7306: the server binds the first free port from the user's preferred one, writes the
+/// The server binds the first free port from the user's preferred one, writes the
 /// port it landed on back into the setting, keeps a notice for Settings and posts a user
 /// notification through the injected poster. Everything here runs on ports in 30000...40000,
 /// below the OS's ephemeral range (`testPorts`), never 8765 / 8784 / 8787 / 8789: Tonebox,
@@ -190,7 +190,7 @@ final class MCPPortSurfacingTests: XCTestCase {
         }
     }
 
-    /// TBX-11105: a taken port on the way up is part of the scan, not an error. The server used
+    /// A taken port on the way up is part of the scan, not an error. The server used
     /// to publish "Listener failed: Address already in use" for it while still trying the next
     /// port, and `waitForBind` (like Settings) took that as the outcome: under a loaded full
     /// suite the next port was not ready within the poll, and the move test failed at 0.3 s

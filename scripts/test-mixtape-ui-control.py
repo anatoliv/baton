@@ -60,6 +60,28 @@ class Contracts(unittest.TestCase):
         self.assertNotIn(KEY, recorded); self.assertNotIn("baton://", recorded)
 
     @patch("mixtape_ui_control.write_receipt")
+    def test_substituted_ids_and_keys_are_canonical_so_unknown_is_not_malformed(self, receipt):
+        # The app accepts only a canonical 16-byte base64url id (ShareLink.isValidID). A
+        # non-canonical substitute reads as a malformed link, never as an unknown one, so the
+        # walk waited for "could not be found" in vain.
+        def canonical(text):
+            raw = base64.urlsafe_b64decode(text + "==")
+            return len(raw) == 16 and base64.urlsafe_b64encode(raw).decode().rstrip("=") == text
+        for registered_id, registered_key in [(IDENTIFIER, KEY), ("_____________________w", "AAAAAAAAAAAAAAAAAAAAAA"),
+                                              ("AAAAAAAAAAAAAAAAAAAAAA", "AQEBAQEBAQEBAQEBAQEBAQ")]:
+            for name in ["wrong", "unknown"]:
+                with self.subTest(command=name, registered=registered_id):
+                    self.commands = []
+                    engine = self.engine()
+                    engine.dispatch({"command": "register", "url": BASE + "/m/" + registered_id + "#" + registered_key})
+                    engine.dispatch({"command": name})
+                    delivered = self.commands[1][0][-1].removeprefix("baton://mixtape/")
+                    identifier, key = delivered.split("#")
+                    self.assertTrue(canonical(identifier) and canonical(key), name)
+                    self.assertNotEqual((identifier, key), (registered_id, registered_key))
+                    self.assertEqual(identifier != registered_id, name == "unknown")
+
+    @patch("mixtape_ui_control.write_receipt")
     def test_original_app_replacement_never_qualifies_delivery(self, receipt):
         pids = iter([321, 654])
         def command(argv, cap):

@@ -129,7 +129,7 @@ final class BookStorageTests: XCTestCase {
     }
 }
 
-/// The renderer's half of M6.3 and TBX-10801: chapters put back in the queue are made again from
+/// The renderer's half of M6.3 and an internal task: chapters put back in the queue are made again from
 /// the chunk cache, and stopping leaves a book to be resumed rather than failed.
 final class BookRendererRequeueTests: XCTestCase {
     func testRequeuedChaptersAreMadeAgainFromTheCache() async throws {

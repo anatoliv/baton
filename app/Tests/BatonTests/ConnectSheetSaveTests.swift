@@ -5,7 +5,7 @@ import BatonSubsonicKit
 /// The connect sheet opens filled in with the active server, so reconnecting (a changed
 /// password, an expired API key) is "type the secret, press Connect". That appended a second
 /// entry for the same server every time, each with its own Keychain secret, and Settings listed
-/// the server twice (TBX-1000000504, A-22). The same server, account and sign-in now update the
+/// the server twice. The same server, account and sign-in now update the
 /// entry they already have.
 ///
 /// Hermetic, as `MultiServerTests` is: a throwaway defaults suite and the in-memory Keychain.
@@ -62,7 +62,7 @@ final class ConnectSheetSaveTests: XCTestCase {
 
     /// Someone the old bug already gave two copies of a server reconnects: the active copy is the
     /// one updated. Updating the other made `selectServer` see a server change and clear the queue,
-    /// and left the active copy on its old secret (TBX-1000000504 review).
+    /// and left the active copy on its old secret.
     func testWithDuplicatesAlreadySavedTheActiveCopyIsTheOneUpdated() {
         let older = NavidromeConfig.addServer(displayName: "Home", urlString: "https://music.example.com",
                                               username: "joe", secret: "old", authMode: .tokenSalt)
@@ -81,7 +81,7 @@ final class ConnectSheetSaveTests: XCTestCase {
 
     /// API-key sign-in needs no username, so two accounts on one server can both have a blank one.
     /// A blank username identifies nobody: connecting the second account must not overwrite the
-    /// first one's key (TBX-1000000504 review).
+    /// first one's key.
     func testAPIKeyAccountsWithNoUsernameAreNeverMerged() {
         let first = NavidromeConfig.addServer(displayName: "Mine", urlString: "https://music.example.com",
                                               username: "", secret: "key-one", authMode: .apiKey)

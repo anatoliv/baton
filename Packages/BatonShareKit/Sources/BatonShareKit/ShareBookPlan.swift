@@ -1,7 +1,7 @@
 import Foundation
 
 /// Which of a book's chapters fit one link, and which kind of link carries them
-/// (`specs/book-sharing.md`, Phase 1, TBX-1000000132).
+/// (`specs/book-sharing.md`, Phase 1).
 ///
 /// A book goes out in the containers that already exist, with no new format: one chapter as a
 /// song link (`/s/`), two to twelve as a mixtape (`/m/`). The caps are the ones the service

@@ -2,7 +2,7 @@ import BatonSpeech
 import XCTest
 @testable import Baton
 
-/// Play on a summary's notification, after the same summary was already spoken (TBX-1000000504,
+/// Play on a summary's notification, after the same summary was already spoken (
 /// A-8). Speaking now consumes and deletes the staged clip, so the notification's Play pointed at
 /// a file that was gone and did nothing at all. It now plays that summary from the replay cache,
 /// or, when the cache holds a later one, says its words in the built-in voice.

@@ -2,7 +2,7 @@ import AVFoundation
 import XCTest
 @testable import BatonPlaybackKit
 
-/// Engine follow-ups from the review (TBX-1000000506: C1-15, C1-16, and the immediate pause
+/// Engine follow-ups from the review (C1-15, C1-16, and the immediate pause
 /// during a retry backoff noted beside C1-17).
 @MainActor
 final class EngineResumeFollowUpTests: XCTestCase {

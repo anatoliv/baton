@@ -97,7 +97,7 @@ enum SessionPurge {
         // A document waiting for its import screen from the last session.
         PendingImportStore.shared.clear()
         // The friend's memory and corrections too, the same way `purge` does it below
-        //: tombstoned into the shared ledger first, so a reset on one device
+        // tombstoned into the shared ledger first, so a reset on one device
         // cannot be undone by the next sync. This path had the same hole the card was filed
         // for, and a UI fixture that "reset" the session still met last run's memories.
         RemoteMemoryStore().forgetEverything()
@@ -109,7 +109,7 @@ enum SessionPurge {
         // permanently spends the prompt for the running app version, `ui-tests.sh` reuses a
         // simulator, and without this a second run against the same container reads as a
         // failure that looks like a regression rather than a leftover from the first
-        //. `resetForTesting()` is the seam `ReviewPromptTests` already uses.
+        // `resetForTesting()` is the seam `ReviewPromptTests` already uses.
         ReviewPrompt.resetForTesting()
         wipeTestLeftovers()
         #endif
@@ -170,7 +170,7 @@ enum SessionPurge {
         try? FileManager.default.removeItem(at: books.appendingPathComponent("recently-removed.json"))
     }
 
-    /// Books on "Disconnect and delete my data" (TBX-1000000505 B-16, owner decision 2026-10-21).
+    /// Books on "Disconnect and delete my data".
     ///
     /// The books hidden from this device and the deletes still owed to the old server always go:
     /// they are the account's, and the next server has never heard of them. The downloaded books
@@ -238,7 +238,7 @@ enum SessionPurge {
         // when the app was backgrounded.
         model.deviceLink.stop()
         // And the books watch: a listing still out with the old token could adopt the old
-        // server's books again after the hidden marks below are cleared (TBX-1000000505 B-16).
+        // server's books again after the hidden marks below are cleared.
         model.books.stopWatching()
 
         if !keepDownloads {
@@ -262,7 +262,7 @@ enum SessionPurge {
         // Subscriptions, locally. See `PodcastSubscriptionStore.purgeLocalSubscriptions`.
         model.podcastSubscriptions.purgeLocalSubscriptions()
         // What the friend was asked and what it did, plus what it remembers and what it has
-        // learned from being corrected. TBX-5230 (owner decision, 2026-09-09): "Disconnect
+        // learned from being corrected. "Disconnect
         // and delete my data" means all of it, including the friend — a person who asks
         // Baton to forget them should not find the friend still repeating what they told it
         // on a server they no longer use. `forgetEverything` / `forgetAll` tombstone every
@@ -274,7 +274,7 @@ enum SessionPurge {
         model.friendLearning.forgetAll()
 
         // A document shared just before signing out, still waiting for its import screen
-        //. It is kept on disk to survive a relaunch, so without this it came back
+        // It is kept on disk to survive a relaunch, so without this it came back
         // after the sign-out. Unlike clippings it is not the user's recording but
         // an import that never happened, so it goes whether or not downloads are kept.
         model.pendingDocumentImport = nil
@@ -287,7 +287,7 @@ enum SessionPurge {
             removeAllClippings(model.clippings)
         }
         // Books: their records and covers follow Keep downloads; hidden marks and the deletes
-        // owed to the old server always go (TBX-1000000505 B-16).
+        // owed to the old server always go.
         purgeBooks(model.books, covers: model.covers.store, directory: BatonStorage.supportSubdirectory("Books"),
                    keepDownloads: keepDownloads)
 
@@ -299,7 +299,7 @@ enum SessionPurge {
         for key in defaultsKeys { BatonStorage.defaults.removeObject(forKey: key) }
         // Those removals wipe this device; they are not edits to the shared settings. Without
         // this each one was a stamped change of a key held at the last sync, and the next sync
-        // announced them all as deleted and the Mac removed its own copies (TBX-1000000480 B-1).
+        // announced them all as deleted and the Mac removed its own copies.
         model.preferenceSync.forgetLocalHistory()
 
         // After the keys are gone, not before. `SearchRecents.clear()` removes only this

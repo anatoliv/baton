@@ -42,7 +42,7 @@ extension ShareService {
             }
             // Installation secrets are self-minted, so the per-secret limit alone does not bound
             // one client; per network, one address needs 100 others to fill the grant table below
-            // (TBX-1000000496 D-16). Each IPv6 address is its own network, and the address is only
+            // Each IPv6 address is its own network, and the address is only
             // as trustworthy as CF-Connecting-IP (E-9).
             let network = salt.hash(["network", ShareRequester(headers: request.headers).network], now: now)
             guard limiter.allow("contact-network:" + network, limit: 100, per: 3600, now: now),

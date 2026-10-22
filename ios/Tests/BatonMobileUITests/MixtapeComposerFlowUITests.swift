@@ -275,7 +275,8 @@ final class MixtapeComposerFlowUITests: XCTestCase {
     }
     private func sharedLinks() {
         app.tabBars.buttons["Home"].tap(); app.buttons["Settings"].tap()
-        let links = app.buttons["Shared Links"].firstMatch
+        // The row's label carries its value too ("Shared Links, 1 live"), as in the other phone UI tests.
+        let links = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Shared Links")).firstMatch
         for _ in 0..<12 where !links.isHittable { app.swipeUp() }
         XCTAssertTrue(links.isHittable); links.tap()
         XCTAssertTrue(app.navigationBars["Shared Links"].waitForExistence(timeout: 10))
@@ -358,7 +359,14 @@ final class MixtapeComposerFlowUITests: XCTestCase {
         }
         XCTAssertEqual(try XCTUnwrap(ShareDate.date(extended.share.expiresAt)).timeIntervalSince(
             try XCTUnwrap(ShareDate.date(initial.share.expiresAt))), 7 * 86400, accuracy: 2)
-        _ = try await uiControl("hold"); app.swipeDown()
+        _ = try await uiControl("hold")
+        // Pull to refresh on the observed Shared Links list itself, as SongSharingFlowUITests does;
+        // a whole-app swipeDown never reached the list's refresh.
+        let ledgers = app.collectionViews.containing(.staticText, identifier: "Ordered Fixture")
+        XCTAssertEqual(ledgers.count, 1, "refresh must target the observed Shared Links list")
+        let ledger = ledgers.element
+        ledger.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+            .press(forDuration: 0.1, thenDragTo: ledger.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)))
         XCTAssertTrue(app.staticTexts["Disabled for review"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Review deadline:")).firstMatch.exists)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Paused link lifetime:")).firstMatch.exists)

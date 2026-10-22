@@ -1,7 +1,7 @@
 import XCTest
 
 /// Spends the first launch of Baton after `xcodebuild` installs it, before any real test does
-///. Named to sort first: XCTest runs classes in name order, and
+/// Named to sort first: XCTest runs classes in name order, and
 /// `ios/scripts/ui-tests.sh` adds it to every `-only` run.
 ///
 /// On the iOS 27.0 simulator that first launch sometimes goes wrong. SpringBoard logs "Retry

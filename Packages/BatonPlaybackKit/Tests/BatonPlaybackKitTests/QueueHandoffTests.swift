@@ -155,7 +155,7 @@ final class QueueHandoffTests: XCTestCase {
         XCTAssertEqual(spy.saved?.songs.map(\.id), ["a", "b"])
     }
 
-    // MARK: - TBX-7356: an answered offer stays answered
+    // MARK: - An answered offer stays answered
 
     private func phoneQueue(position: Int = 42_000, current: String = "b") -> NavidromePlayQueue {
         NavidromePlayQueue(songs: [song("a"), song("b")], currentID: current,

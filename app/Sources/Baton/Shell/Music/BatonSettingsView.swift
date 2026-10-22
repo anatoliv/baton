@@ -187,7 +187,7 @@ private struct BatonServersPane: View {
                         row(for: server)
                     }
                 }
-                // TBX-10997: two servers, two names, and a way to the page that explains both.
+                // Two servers, two names, and a way to the page that explains both.
                 HStack(alignment: .firstTextBaseline) {
                     Text("Your music server holds your library: Navidrome or any Subsonic-compatible server. The active one (checkmark) is the one you're browsing and playing. Your Baton server, which makes books and keeps your devices in step, is set up under Remote.")
                         .font(.callout).foregroundStyle(.secondary)
@@ -510,7 +510,7 @@ private struct BatonAgentsPane: View {
                 }
             }
 
-            // What document features may send to a cloud model (M4.6, TBX-10851).
+            // What document features may send to a cloud model (M4.6).
             CloudModelConsentSection()
         }
         .formStyle(.grouped)

@@ -1,6 +1,6 @@
 import Foundation
 
-/// A document the iPhone sent to the Mac through the home gateway (TBX-10871, "Send to my Mac").
+/// A document the iPhone sent to the Mac through the home gateway.
 ///
 /// The phone can read a document but not make it into a book on its own; the Mac can. When the
 /// home server is there but cannot make books (no voice server, books off), the phone parks the
@@ -119,7 +119,7 @@ public struct PendingImportRelay: Sendable {
 
     /// Park a link for the Mac: the record alone, since the Mac reads the page itself. Without
     /// its fragment, which the Mac does not need to read the page and which can be a secret, a
-    /// Baton share link's key (TBX-1000000505 B-6).
+    /// Baton share link's key.
     @discardableResult
     public func send(link: URL, title: String, fromDevice: String, now: Date = Date()) async throws -> PendingImport {
         var parts = URLComponents(url: link, resolvingAgainstBaseURL: false)

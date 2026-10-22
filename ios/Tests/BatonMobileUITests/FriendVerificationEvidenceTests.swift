@@ -1,14 +1,14 @@
 import XCTest
 
-/// Evidence, from a running app, for the three claims that TBX-5123, TBX-5127 and
-/// TBX-5131 have only ever had code review and unit tests behind them:
+/// Evidence, from a running app, for the three claims that and
+/// An internal task have only ever had code review and unit tests behind them:
 ///
 ///  1. a passing connection test makes the **Friend tab appear by itself** — the thing
-///     TBX-5131 fixed by making the verified fingerprint an observed stored property, and
+///     An internal task fixed by making the verified fingerprint an observed stored property, and
 ///     whose own "done when" asks for a screenshot of the tab bar;
 ///  2. the Music Friend settings screen carries a **live status row**;
 ///  3. typing in the API key field **does not fire a request per keystroke** — the defect
-///     TBX-5127's audit found and `239e777c` fixed.
+///     An internal task audit found and `239e777c` fixed.
 ///
 /// The provider is a local stub that always answers "pause the music" with a `music_pause`
 /// tool call, for two reasons. It makes the pass deterministic, so what is under
@@ -35,7 +35,7 @@ final class FriendVerificationEvidenceTests: XCTestCase {
         continueAfterFailure = false
         try XCTSkipIf(stubBaseURL.isEmpty, "no stub provider supplied")
         app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"

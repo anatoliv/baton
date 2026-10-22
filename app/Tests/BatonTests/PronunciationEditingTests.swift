@@ -59,7 +59,7 @@ final class PronunciationEditingTests: XCTestCase {
         XCTAssertNil(PronunciationEditing.lexicon(from: [], original: proposed), "nothing left: no lexicon")
     }
 
-    /// TBX-10947: the TBX-10886 walk asked the model about "neighbourhood", a British spelling the
+    /// The an internal task walk asked the model about "neighbourhood", a British spelling the
     /// default dictionary does not know, and the model gave it Netherfield's phonemes.
     func testABritishSpellingIsAWordAndTheWalksBadPairIsNotShown() {
         XCTAssertEqual(PronunciationEditing.isWord("neighbourhood"), true, "known to en_GB, so not asked about")

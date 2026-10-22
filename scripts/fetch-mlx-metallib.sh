@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Puts MLX's prebuilt Metal shaders where the Mac app's "Bundle MLX shaders" build phase finds them
-# (TBX-10854). Only needed on a Mac without Xcode's Metal Toolchain component; with it, Xcode
+# Only needed on a Mac without Xcode's Metal Toolchain component; with it, Xcode
 # compiles MLX's shaders itself and the build phase leaves them alone.
 #
 # The file is mlx/lib/mlx.metallib from PyPI's mlx-metal 0.29.1 wheel (MIT, ml-explore), the same

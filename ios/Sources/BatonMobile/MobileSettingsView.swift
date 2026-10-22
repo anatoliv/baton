@@ -32,7 +32,7 @@ struct MobileSettingsView: View {
     /// who never opens this screen.
     @AppStorage(StreamQuality.cellularKey) private var cellularQuality = StreamQuality.high.rawValue
     @AppStorage(MobileModel.experimentalEngineKey) private var experimentalEngine = false
-    /// Document clippings, on by default since TBX-10801. Read through `MobileDocuments` rather
+    /// Document clippings, on by default since an internal task. Read through `MobileDocuments` rather
     /// than `@AppStorage` so the switch and the feature agree on what an absent key means.
     @State private var documentsEnabled = MobileDocuments.isEnabled()
     /// Bumped after a cloud consent switch changes, so the switches re-read the ledger.
@@ -233,7 +233,7 @@ struct MobileSettingsView: View {
                 } header: {
                     Text("Music server")
                 } footer: {
-                    // TBX-10997: two servers, two names. This is the one that holds the library;
+                    // Two servers, two names. This is the one that holds the library;
                     // the Baton server (books, shared place and settings) is under Music Friend.
                     SettingsFooter(
                         text: (model.isDemoMode
@@ -427,7 +427,7 @@ struct MobileSettingsView: View {
                         }
                     // Where book audio lives, how big it is, and the cleanup rules (M6.4).
                     if documentsEnabled {
-                        // TBX-10909: no engine choice here, only what makes the books.
+                        // No engine choice here, only what makes the books.
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Where books are made")
                             Text(MobileDocuments.whereBooksAreMade)
@@ -450,7 +450,7 @@ struct MobileSettingsView: View {
                             Label("Storage", systemImage: "internaldrive")
                         }
                         .accessibilityIdentifier("settings-storage")
-                        // What a cloud model may be sent for recaps (M4.6, TBX-10966): the
+                        // What a cloud model may be sent for recaps (M4.6): the
                         // answer to the question Clippings asks, kept per provider.
                         ForEach(MobileRecap.cloudSources(model.agentConfig), id: \.consentID) { source in
                             Toggle(isOn: chapterConsent(source)) {

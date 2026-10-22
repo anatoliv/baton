@@ -143,7 +143,7 @@ final class PreferenceSyncDeletionTests: XCTestCase {
     /// Those removals are a wipe, not a decision about the shared settings, so once the purge
     /// has forgotten this device's history the next sync must leave the shared values alone.
     /// Before, each removal was stamped as a local change of a held key and pushed as a
-    /// tombstone with the old token, and the Mac cleared its own settings (TBX-1000000480 B-1).
+    /// tombstone with the old token, and the Mac cleared its own settings.
     func testAfterForgetLocalHistoryARemovedHeldKeyPushesNoTombstone() async throws {
         let phone = device("iPhone")
         phone.defaults.set("Rock", forKey: key)

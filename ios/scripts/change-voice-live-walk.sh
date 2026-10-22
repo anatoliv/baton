@@ -1,6 +1,6 @@
 #!/bin/bash
 # Change Voice… on the phone against a throwaway loopback gateway and a real voice server
-# (TBX-10989), on a simulator the caller owns:
+# on a simulator the caller owns:
 #
 #   SIM_UDID=<udid> ios/scripts/change-voice-live-walk.sh <evidence-dir>
 #

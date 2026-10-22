@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Probe checks on this machine run one at a time, and a dead owner must not wedge the next.
-# (TBX-7383)
+#
 #
 # WHY THIS EXISTS. On 2026-09-24 a review-queue audit's `probe-handoff-e2e.sh` failed at
 # "Not now pressed" with a System Events error (-1719) while another agent's probe checks ran
@@ -102,7 +102,7 @@ wait "$H"
 [ ! -e "$BATON_PROBE_LOCK" ] && ok "the holder's own release frees it" || bad "the holder's release left the lock"
 
 # ---- 7. a dead holder and two waiters, one slow to act on it: the holds never overlap -------
-# TBX-7388. The slow waiter judges the lock stale first, then stalls (the test-only delay sits
+# An internal task. The slow waiter judges the lock stale first, then stalls (the test-only delay sits
 # between that judgement and the reclaim). Meanwhile the fast waiter reclaims it and takes a
 # fresh lock. When the slow one resumes it must not remove that fresh, live lock.
 sh -c 'exit 0' & DEAD2=$!; wait "$DEAD2"

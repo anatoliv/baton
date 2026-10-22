@@ -4,7 +4,7 @@ import Foundation
 import XCTest
 @testable import BatonPlaybackKit
 
-/// What a system sync may do to the alarms AlarmKit already holds (TBX-11171 review): a launch,
+/// What a system sync may do to the alarms AlarmKit already holds: a launch,
 /// background launches included, must not silence a ringing alarm or throw away a snooze, and
 /// must leave unchanged alarms alone.
 @MainActor

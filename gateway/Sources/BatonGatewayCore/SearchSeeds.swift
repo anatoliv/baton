@@ -1,7 +1,7 @@
 import Foundation
 
 /// What each conversation last searched for, so "something like that" means that conversation's
-/// results and not somebody else's (TBX-5308, S-F26).
+/// results and not somebody else's.
 ///
 /// The gateway held one `lastResults` field on one instance, so `music_similar_songs` seeded from
 /// whatever the most recent search had been, whoever made it. Harmless in a household of one and

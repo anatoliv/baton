@@ -194,7 +194,7 @@ final class HTTPModelClientTests: XCTestCase {
 }
 
 extension HTTPModelClientTests {
-    /// TBX-10894: the executor asks for the running task's reply budget, as `max_tokens` and as
+    /// The executor asks for the running task's reply budget, as `max_tokens` and as
     /// Ollama's `num_predict`, so a model repeating itself stops at the budget.
     func testTheExecutorAsksForTheTasksReplyBudget() async throws {
         ModelStubProtocol.reset()

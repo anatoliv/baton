@@ -4,7 +4,7 @@ import BatonSubsonicModels
 @testable import BatonPlaybackKit
 
 /// Two quick rating changes where the first fails after the second has landed: the failure
-/// put back the rating from before both (TBX-1000000506, C2-24).
+/// put back the rating from before both.
 @MainActor
 final class LibraryRatingRaceTests: XCTestCase {
     override func tearDown() {
@@ -32,7 +32,7 @@ final class LibraryRatingRaceTests: XCTestCase {
 
 /// Two quick like toggles that both fail (offline): the UI must end as the server is, not
 /// liked. The newest write's revert restored its own baseline, which was the first toggle's
-/// optimistic state (TBX-1000000506 review finding 3).
+/// optimistic state.
 @MainActor
 final class LibraryLikeFailureTests: XCTestCase {
     private func store() -> MusicLibraryStore {

@@ -2,6 +2,7 @@
 """Pure mocked boundaries only: no child, listener, SDK or service is started."""
 import base64
 import ast
+import contextlib
 import inspect
 import textwrap
 import hashlib
@@ -9,6 +10,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import signal
 import sys
 import tempfile
 import unittest
@@ -126,6 +128,84 @@ class Packages(unittest.TestCase):
                 return command(argv)
             with self.assertRaises(ValueError):gateway_copy(cache,pinfile,root/'ignored-rejected',repo,ignored_command)
 
+class LocalMirrorPackages(unittest.TestCase):
+    """SwiftPM's current cache shape (TBX-1000000539): each checkout's origin is the local path
+    of its mirror in the same cache's repositories/, and only the mirror records the public URL.
+    The configs below copy the observed ones, values included."""
+    CORE = ('[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\tbare = {bare}\n{extra}'
+            '\tignorecase = true\n\tprecomposeunicode = true\n\tsymlinks = true\n\tfsmonitor = false\n\tlongpaths = true\n')
+
+    def cache(self, root, head=None, checkout_origin=None, mirror_origin=None, swap=False, dotted=False):
+        cache = root / 'cache'; pins = []; dependencies = []; first = None
+        for index, (identity, version) in enumerate(GATEWAY_VERSIONS.items()):
+            url = 'https://github.com/apple/' + identity + '.git'; revision = '%x' % (index + 10) * 40
+            state = {'version': version, 'revision': revision}; pins.append({'identity': identity, 'location': url, 'state': state})
+            checkout = cache / 'checkouts' / identity; mirror = cache / 'repositories' / (identity + '-7065ad2c')
+            (checkout / '.git').mkdir(parents=True); mirror.mkdir(parents=True)
+            (mirror / 'config').write_text(self.CORE.format(bare='true', extra='') +
+                '[remote "origin"]\n\turl = ' + (mirror_origin or url) + '\n\ttagOpt = --no-tags\n\tfetch = +refs/*:refs/*\n\tmirror = true\n')
+            recorded = cache / 'repositories/../repositories' / mirror.name if dotted else mirror
+            (checkout / '.git/config').write_text(self.CORE.format(bare='false', extra='\tlogallrefupdates = true\n') +
+                '[remote "origin"]\n\turl = ' + str(checkout_origin or recorded) + '\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n'
+                '[branch "main"]\n\tremote = origin\n\tmerge = refs/heads/main\n')
+            (checkout / '.git/HEAD').write_text((head or revision) + '\n')
+            if swap and first is None: first = (mirror, revision)
+            elif swap:   # this checkout names the first package's mirror, at that package's revision
+                text = (checkout / '.git/config').read_text().replace(str(mirror), str(first[0]))
+                (checkout / '.git/config').write_text(text); (checkout / '.git/HEAD').write_text(first[1] + '\n')
+            (checkout / 'Package.swift').write_bytes(b'public synthetic manifest')
+            dependencies.append({'packageRef': {'identity': identity, 'kind': 'remoteSourceControl', 'location': url},
+                                 'subpath': identity, 'state': {'checkoutState': state}})
+        (cache / 'workspace-state.json').write_text(json.dumps({'object': {'dependencies': dependencies, 'artifacts': []}}))
+        pinfile = root / 'pins.json'; pinfile.write_text(json.dumps({'pins': pins}))
+        return cache, pinfile, pins
+
+    def test_local_mirror_checkouts_qualify_by_their_pinned_revision(self):
+        from mixtape_ui_packages import qualify_git_config
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve(); cache, pinfile, pins = self.cache(root)
+            receipt = qualify_git_config(cache, pinfile.read_bytes())
+            self.assertEqual((receipt['publicConfigurations'], receipt['allowedPublicOrigins']), (6, 3))
+            self.assertEqual(receipt['localMirrorCheckouts'], 3); self.assertEqual(receipt['revisionVerifiedCheckouts'], 3)
+            def command(argv):
+                identity = Path(argv[2]).name
+                if argv[3:] == ['rev-parse', 'HEAD']: return next(p['state']['revision'] for p in pins if p['identity'] == identity).encode()
+                if argv[3] == 'show': return b'public synthetic manifest'
+                return b''
+            copied = gateway_copy(cache, pinfile, root / 'fresh', root / 'repo', command)
+            self.assertTrue(copied['configurationQualified']); self.assertEqual(copied['localMirrorCheckouts'], 3)
+
+    def test_local_mirror_records_refuse_anything_but_this_caches_pinned_revision(self):
+        from mixtape_ui_packages import qualify_git_config
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            elsewhere = root / 'other/repositories/swift-crypto-7065ad2c'; elsewhere.mkdir(parents=True)
+            cases = {'another revision checked out': dict(head='f' * 40),
+                     'a symbolic HEAD': dict(head='ref: refs/heads/main'),
+                     'a mirror outside this cache': dict(checkout_origin=elsewhere),
+                     'a missing mirror': dict(checkout_origin=root / 'cache/repositories/absent'),
+                     'a relative mirror path': dict(checkout_origin='repositories/swift-crypto-7065ad2c'),
+                     'a mirror of an unpinned origin': dict(mirror_origin='https://github.com/apple/swift-nio.git'),
+                     'a file-protocol mirror origin': dict(mirror_origin='file:///private/tmp/source'),
+                     "a path into this cache through '..'": dict(dotted=True),
+                     "another package's mirror and revision": dict(swap=True)}
+            for name, case in cases.items():
+                with self.subTest(name), tempfile.TemporaryDirectory(dir=root) as each:
+                    cache, pinfile, _ = self.cache(Path(each), **case)
+                    with self.assertRaises(ValueError): qualify_git_config(cache, pinfile.read_bytes())
+
+    def test_the_observed_extra_settings_are_the_only_new_ones_accepted(self):
+        url = 'https://github.com/apple/swift-crypto.git'
+        base = self.CORE.format(bare='true', extra='') + '[remote "origin"]\n\turl = ' + url + '\n\ttagOpt = --no-tags\n\tfetch = +refs/*:refs/*\n\tmirror = true\n'
+        self.assertEqual(public_config(base, {url}), url)
+        # fsmonitor = true would start git's fsmonitor daemon (a background process and an IPC
+        # socket in the source cache) on gateway_copy's git diff/status; SwiftPM writes false.
+        for changed in [base.replace('--no-tags', '--tags'), base.replace('fsmonitor = false', 'fsmonitor = /private/tmp/hook'),
+                        base.replace('fsmonitor = false', 'fsmonitor = true'),
+                        base.replace('longpaths = true', 'longpaths = maybe')]:
+            with self.assertRaises(ValueError): public_config(changed, {url})
+
+
 class Pending(unittest.TestCase):
     def material(self):
         ids=[IDENTIFIER,'AgICAgICAgICAgICAgICAg']
@@ -198,7 +278,7 @@ class FixtureQualification(unittest.TestCase):
     def setUp(self):
         self.temporary=tempfile.TemporaryDirectory(dir='/private/tmp')
         self.root=Path(self.temporary.name).resolve();self.root.chmod(0o700)
-        self.calls=[];self.compile_failure=None;self.cli_exit=64;self.tamper=False
+        self.calls=[];self.compile_failure=None;self.cli_exit=64;self.tamper=False;self.bin_prefix=b''
         self.args=__import__('types').SimpleNamespace(gateway_cache='synthetic-cache',gateway_pins='synthetic-pins')
     def tearDown(self):self.temporary.cleanup()
     def command(self,argv,cap=120,accept_failure=False):
@@ -214,7 +294,7 @@ class FixtureQualification(unittest.TestCase):
                 shutil.copytree(self.module.REPO/'gateway/Sources/BatonShareServer'/name,resources/name)
             if self.tamper:(resources/'Web/mixtape.html').write_bytes(b'substituted resource')
             return b'',0
-        if argv[0]=='swift':return str(self.root/'gateway-build/debug').encode()+b'\n',0
+        if argv[0]=='swift':return self.bin_prefix+str(self.root/'gateway-build/debug').encode()+b'\n',0
         return b'mixtape UI fixture: invalid disposable inputs\n',self.cli_exit
     def qualify(self):
         with patch.object(self.module,'gateway_copy',return_value={'noBuildProductsCopied':True}):
@@ -229,6 +309,15 @@ class FixtureQualification(unittest.TestCase):
         self.assertEqual(len([a for a in self.calls if a[0]=='swift']),2)
         self.assertIn('--disable-automatic-resolution',self.calls[0]);self.assertIn('--skip-update',self.calls[0])
         self.assertIn(str(self.root/'gateway-build'),self.calls[0])
+    def test_swiftpm_warning_merged_before_the_bin_path_is_not_the_path(self):
+        # Current SwiftPM warns on stderr that --skip-update is deprecated; the reserved
+        # command merges stderr into the output.
+        self.bin_prefix=b"warning: '--skip-update' option is deprecated and will be removed in a future release\n"
+        self.assertEqual(self.qualify()['cliRefusalsPassed'],4)
+    def test_anything_but_swiftpm_warnings_before_the_bin_path_refuses(self):
+        self.bin_prefix=b'/private/tmp/elsewhere\n'
+        with self.assertRaises(ValueError):self.qualify()
+        self.assertFalse((self.root/'fixture-artifact.json').exists())
     def test_compile_failure_remains_primary_and_never_publishes_receipt(self):
         self.compile_failure=RuntimeError('synthetic compiler failure')
         with self.assertRaises(RuntimeError) as caught:self.qualify()
@@ -242,6 +331,31 @@ class FixtureQualification(unittest.TestCase):
         self.cli_exit=0
         with self.assertRaises(ValueError):self.qualify()
         self.assertFalse((self.root/'fixture-artifact.json').exists());self.assertEqual(len(self.calls),3)
+
+class HeldLoop(BaseException): pass
+@contextlib.contextmanager
+def real_custody_hold():
+    # The real retain_custody swallows its disarm/handler faults and then never
+    # returns: its loop is the hold. Run it unchanged up to that loop, with its
+    # sleep, handlers, notices and banner mocked so no SIGTERM handler survives,
+    # and leave the loop at its header after one swallowed interruption.
+    import mixtape_owned_lifecycle as lifecycle
+    target=lifecycle.retain_custody;lines,start=inspect.getsourcelines(target)
+    loop=next((n for n in ast.walk(ast.parse(textwrap.dedent(''.join(lines)))) if isinstance(n,ast.While)),None)
+    if loop is None:raise AssertionError('retain_custody no longer holds the original parent in a loop')
+    header=loop.lineno+start-1;hold=Mock(entered=False,sleeps=[])
+    def sleep(seconds):
+        hold.sleeps.append(seconds);raise KeyboardInterrupt()
+    def trace(frame,event,arg):
+        if frame.f_code is target.__code__ and event=='line' and frame.f_lineno==header and hold.sleeps:
+            hold.entered=True;raise HeldLoop()
+        return trace
+    previous=sys.gettrace()
+    with patch.object(lifecycle.time,'sleep',side_effect=sleep),patch.object(lifecycle,'write_receipt') as notice,patch.object(lifecycle,'print',create=True) as banner:
+        hold.notice,hold.banner=notice,banner
+        sys.settrace(trace)
+        try:yield hold
+        finally:sys.settrace(previous)
 
 class Controller(unittest.TestCase):
     @classmethod
@@ -290,22 +404,27 @@ class Controller(unittest.TestCase):
         class ParkEntered(BaseException): pass
         listener=Mock();listener.close.return_value=False
         self.deadline.disarm=Mock(side_effect=OSError('synthetic disarm failure'))
-        with patch.object(self.module,'_park_original_parent',create=True,side_effect=ParkEntered) as park,patch.object(self.module,'write_receipt') as receipt:
+        with real_custody_hold() as hold,patch('mixtape_owned_lifecycle.signal.signal') as handler,patch.object(self.module,'_park_original_parent',create=True,side_effect=ParkEntered) as park,patch.object(self.module,'write_receipt') as receipt:
             with self.assertRaises(ParkEntered):self.module.finish(self.root,self.deadline,self.owned,[listener,None],1,'x')
             park.assert_called_once();self.owned.cleanup.assert_not_called();receipt.assert_not_called()
+        self.assertTrue(hold.entered);self.deadline.disarm.assert_called_once()
+        self.assertEqual([c.args[0] for c in handler.call_args_list],[signal.SIGINT,signal.SIGTERM,signal.SIGHUP])
+        self.assertIs(hold.notice.call_args.args[1]['automaticExit'],False)
     def test_retainer_handler_fault_reaches_nonthrowing_original_parent_park(self):
         class ParkEntered(BaseException): pass
         listener=Mock();listener.close.return_value=False
-        with patch('mixtape_owned_lifecycle.signal.signal',side_effect=OSError('synthetic handler failure')),patch.object(self.module,'_park_original_parent',create=True,side_effect=ParkEntered) as park,patch.object(self.module,'write_receipt') as receipt:
+        with real_custody_hold() as hold,patch('mixtape_owned_lifecycle.signal.signal',side_effect=OSError('synthetic handler failure')) as handler,patch.object(self.module,'_park_original_parent',create=True,side_effect=ParkEntered) as park,patch.object(self.module,'write_receipt') as receipt:
             with self.assertRaises(ParkEntered):self.module.finish(self.root,self.deadline,self.owned,[listener,None],1,'x')
             park.assert_called_once();receipt.assert_not_called()
+        self.assertTrue(hold.entered);self.assertEqual(handler.call_count,3)
     def test_actual_deadline_alarm_cannot_exit_after_failed_disarm_hold(self):
         from incoming_fixture_lifecycle import Deadline as ActualDeadline
         deadline=ActualDeadline(clock=lambda:0);deadline.clock=lambda:901;deadline.enter_cleanup=Mock()
         listener=Mock();listener.close.return_value=False
-        with patch('incoming_fixture_lifecycle.signal.setitimer',side_effect=OSError('synthetic timer failure')),patch.object(self.module,'_park_original_parent',create=True,side_effect=RuntimeError('mock park reached')):
+        with real_custody_hold() as hold,patch('mixtape_owned_lifecycle.signal.signal'),patch('incoming_fixture_lifecycle.signal.setitimer',side_effect=OSError('synthetic timer failure')),patch.object(self.module,'_park_original_parent',create=True,side_effect=RuntimeError('mock park reached')):
             try:self.module.finish(self.root,deadline,self.owned,[listener,None],1,'x')
             except BaseException:pass
+        self.assertTrue(hold.entered)
         with patch('incoming_fixture_lifecycle.os._exit') as exited,patch('incoming_fixture_lifecycle.signal.setitimer',side_effect=OverflowError('synthetic infinite timer')):
             try:deadline.alarm(None,None)
             except BaseException:pass
@@ -340,11 +459,12 @@ class Controller(unittest.TestCase):
         for fault in ['disarm','handler','diagnostic']:
             with self.subTest(fault=fault):
                 deadline=self.module.Deadline(clock=lambda:0)
-                with patch('incoming_fixture_lifecycle.signal.setitimer'),patch('mixtape_owned_lifecycle.signal.signal') as handler,patch.object(self.module,'_park_original_parent',side_effect=RuntimeError('mock park reached')):
+                with real_custody_hold() as hold,patch('incoming_fixture_lifecycle.signal.setitimer'),patch('mixtape_owned_lifecycle.signal.signal') as handler,patch.object(self.module,'_park_original_parent',side_effect=RuntimeError('mock park reached')):
                     if fault=='disarm':deadline.disarm=Mock(side_effect=OSError('synthetic disarm failure'))
                     if fault=='handler':handler.side_effect=OSError('synthetic handler failure')
                     with patch.object(self.module,'retain_custody',side_effect=OSError('synthetic diagnostic failure')) if fault=='diagnostic' else __import__('contextlib').nullcontext():
                         with self.assertRaises(RuntimeError):self.module.hold_original_parent(self.root,deadline)
+                self.assertEqual(hold.entered,fault!='diagnostic')
                 deadline.clock=Mock(side_effect=RuntimeError('clock must not run after hold'))
                 with patch('incoming_fixture_lifecycle.signal.setitimer',side_effect=OSError('timer must not run')) as timer,patch('incoming_fixture_lifecycle.os._exit') as exited:
                     deadline.alarm(None,None)

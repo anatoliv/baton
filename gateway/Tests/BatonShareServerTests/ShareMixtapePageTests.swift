@@ -61,7 +61,7 @@ final class ShareMixtapePageTests: XCTestCase {
         XCTAssertTrue(html.contains("<title>{{OG_TAGS}} sent you {{DATA}}</title>"), html)
     }
     /// The song page's D-21 case on the mixtape page, whose title, sender and note reach the page
-    /// and its Open Graph tags (TBX-1000000507 D-6/D-21 gap).
+    /// and its Open Graph tags.
     func testACombiningMarkCannotCarryAQuoteOrBracketPastEscaping() throws {
         let id = try pending(preview: .init(title: "Tape <\u{301}b>", from: "Sam\"\u{301}",
                                             note: "0;url=https://evil.example\"\u{301} http-equiv=refresh '\u{301}&\u{301}"))

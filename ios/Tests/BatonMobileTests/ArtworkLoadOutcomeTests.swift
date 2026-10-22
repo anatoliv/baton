@@ -8,7 +8,7 @@ import XCTest
 /// dropped connection were the same nil; the palette loader cached the neutral fallback
 /// after any failure, so one blip left a backdrop grey for the session; and the byte cache
 /// was keyed on the full signed URL, whose salt changes per request, so it stored the same
-/// cover many times and served none of them back. (TBX-5349 / S-F19)
+/// cover many times and served none of them back.
 @MainActor
 final class ArtworkLoadOutcomeTests: XCTestCase {
     private var savedSession: URLSession!
@@ -177,7 +177,7 @@ final class ArtworkLoadOutcomeTests: XCTestCase {
             .cachedResponse(for: URLRequest(url: ArtworkCache.cacheKeyURL(for: url)))
         XCTAssertNotNil(stripped, "the cover must be there under the key that repeats")
         // The stored response carries a URL of its own, and Cache.db writes it to disk beside
-        // the key. It held the signed URL (TBX-1000000480 C3-2).
+        // the key. It held the signed URL.
         let storedNames = stripped?.response.url
             .flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems }?
             .map(\.name) ?? []

@@ -10,7 +10,7 @@ import XCTest
 /// `ios/scripts/books-live-walk.sh` sets them, relays the gateway through 127.0.0.1 (local
 /// network privacy does not apply to loopback) and stages the sample PDF. The runner hands the
 /// gateway and the file to the app through its launch environment, never a launch argument
-///. The test book is deleted from the home server afterwards.
+/// The test book is deleted from the home server afterwards.
 final class DocumentImportLiveWalkUITests: XCTestCase {
     private var app: XCUIApplication!
     private var gateway: URL?

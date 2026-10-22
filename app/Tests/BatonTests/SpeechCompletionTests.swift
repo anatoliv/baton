@@ -114,7 +114,7 @@ final class SpeechCompletionTests: XCTestCase {
 
     /// An engine that cannot start (no usable output device) must still end the utterance, or the
     /// session never ends: the music stays ducked and every later summary queues behind a clip
-    /// that will never play, until the user finds Stop (TBX-1000000504, A-4). Needs no device:
+    /// that will never play, until the user finds Stop. Needs no device:
     /// the start is made to fail.
     func testAnEngineThatCannotStartStillEndsTheSessionAndReleasesTheDuck() async throws {
         SpeechAudioPlayer.startEngineOverride = { _ in throw NoOutputDevice() }

@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Baton's named native-resource locks: the release kit's lib/native-lock.sh with Baton's
-# names. (TBX-11003, TBX-11024)
+# names.
 #
 # The lock protocol itself lives in the release kit (scripts/release-kit/lib/native-lock.sh,
 # canonical source ~/Projects/_release, rule ~/Projects/_method/docs/standards/release.md).
@@ -41,7 +41,7 @@ native_lock_host_refusal() {   # kind, pid, start time, cwd, derived data
 # shellcheck source=scripts/release-kit/lib/native-lock.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/release-kit/lib/native-lock.sh"
 
-# A waiting release's intent for mac-app-host stays where Baton's scripts before TBX-11024
+# A waiting release's intent for mac-app-host stays where Baton's scripts before an internal task
 # write it, so old and new checkouts still honor each other's release priority. Only Baton
 # uses this path; the kit names other projects' host intents by their own file's digest.
 NATIVE_LOCK_HOST_INTENT="$NATIVE_LOCK_DIR/mac-app-host.release-intent"

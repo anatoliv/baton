@@ -7,7 +7,7 @@ import OSLog
 import os
 
 /// The sound an alarm or timer rings on the iPhone: the first 29 seconds of its own track, cut
-/// into `Library/Sounds/baton-alarm-<id>.caf` (TBX-11171, TBX-1000000410,
+/// into `Library/Sounds/baton-alarm-<id>.caf` (
 /// specs/alarm-and-timer.md). AlarmKit (`.named`) and notifications (`UNNotificationSound`) both
 /// take a file by name from the app's `Library/Sounds`, at most 30 seconds, Linear PCM in a CAF
 /// among the accepted forms.
@@ -19,7 +19,7 @@ import os
 /// chapters, the demo library), and a server stream by fetching it (with the server's extra
 /// headers) to a temporary file first,
 /// because `AVAssetReader` refuses a non-local URL outright ("Cannot initialize an instance of
-/// AVAssetReader with an asset at non-local URL"). Before TBX-1000000410 a stream was handed to
+/// AVAssetReader with an asset at non-local URL"). Before an internal task a stream was handed to
 /// the reader as it was, so a server track never had a clip.
 @MainActor
 public final class AlarmClipStore {
@@ -199,7 +199,7 @@ public final class AlarmClipStore {
     /// and moved into place only when it is whole and valid, so the system never finds half a
     /// file under the name. False when the source cannot be read in time; then `target` is
     /// left as it was. With `fadeIn`, the clip rises from `GentleWake.floorDB` to full over that
-    /// many seconds and stays full after (a gentle alarm's, TBX-1000000445).
+    /// many seconds and stays full after (a gentle alarm's).
     public nonisolated static func render(from source: URL, to target: URL, seconds: Double, timeout: Duration,
                                           session: URLSession = .shared, headers: [String: String] = [:],
                                           fadeIn: TimeInterval? = nil) async -> Bool {

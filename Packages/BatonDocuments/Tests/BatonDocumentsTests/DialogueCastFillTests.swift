@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import BatonDocuments
 
-/// TBX-10894: the quotes the rules leave, placed by a model and read strictly, and what happens
+/// The quotes the rules leave, placed by a model and read strictly, and what happens
 /// when no model answers.
 final class DialogueCastFillTests: XCTestCase {
     private let cast = [
@@ -163,7 +163,7 @@ final class DialogueCastFillTests: XCTestCase {
         XCTAssertEqual(partial.answered, 1)
     }
 
-    /// TBX-10956: the walk's exchange as qwen3:8b answered it, Mrs. Bennet for every line
+    /// The walk's exchange as qwen3:8b answered it, Mrs. Bennet for every line
     /// after her husband's first. Her tags on both sides fall on alternate turns, so the
     /// exchange is the two of them taking turns and the answers that break it are replaced.
     func testAnExchangeBetweenTwoTakesTurnsWhereTheModelLostTheThread() async {
@@ -240,7 +240,7 @@ final class DialogueCastFillTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(DialogueCast.Fill.self, from: JSONEncoder().encode(fill)), fill)
     }
 
-    /// TBX-10956: the TBX-10886 walk's chapter (`docs/evidence/tbx-10886/walk/book-pride-and-prejudice-ch1.md`,
+    /// The an internal task walk's chapter (`docs/evidence/tbx-10886/walk/book-pride-and-prejudice-ch1.md`,
     /// passed as `BATON_WALK_BOOK`) placed by a live model the way the app places it, with the
     /// walk's ten-speaker cast, scored against the right speakers (the G5 pair's rules and the home-network model
     /// `chat` answers, 32 of 32). The caption under the illustration is not a line: voiced, it

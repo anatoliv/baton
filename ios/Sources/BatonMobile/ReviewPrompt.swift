@@ -35,7 +35,7 @@ enum ReviewPrompt {
     /// whose coefficients were never applied). `ReviewPromptUITests` sets it to 1.
     ///
     /// Read through `ProcessInfo.processInfo.environment`, set via `app.launchEnvironment`,
-    /// not `-key value` in `app.launchArguments`. TBX-5326 found that a `-key value` pair
+    /// not `-key value` in `app.launchArguments`. An internal task found that a `-key value` pair
     /// does not reliably reach the process at all: about one run in four, the ENTIRE group
     /// of `-baton.review.*` arguments was simply absent from `ProcessInfo.processInfo.arguments`
     /// on a fresh `app.launch()`: not just the boolean form, this integer read the built-in
@@ -66,7 +66,7 @@ enum ReviewPrompt {
     /// `-baton.review.countInDemo YES` through `UserDefaults`'s argument domain read back as
     /// false and cost a full UI-test run to find. Moving it to a bare `ProcessInfo` flag (the
     /// way `-uitestBypassBiometrics` and `-baton.resetSession` work) looked like the fix, but
-    /// TBX-5326 later caught the same flag itself missing from `ProcessInfo.processInfo.arguments`
+    /// An internal task later caught the same flag itself missing from `ProcessInfo.processInfo.arguments`
     /// on other launches, alongside the numeric overrides above going missing on the very same
     /// runs. The trap was never "booleans specifically don't read back"; it is that a `-key`
     /// (or `-key value`) pair does not reliably survive `app.launchArguments` at all. This env

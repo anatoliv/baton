@@ -7,7 +7,7 @@ import XCTest
 /// Chain validation is async, and the synchronous caller waits for it. With the validator on the
 /// cooperative pool, enough callers waiting at once (each on a pool thread, as the transport's
 /// handlers are) left no thread to run any validator: every attestation failed after a 5 s
-/// stall (TBX-1000000496 D-7). The validator now runs on a thread of its own.
+/// stall. The validator now runs on a thread of its own.
 final class AppAttestChainPoolTests: XCTestCase {
     func testChainValidationCompletesWhileItsCallersHoldEveryPoolThread() async throws {
         let now = Date(timeIntervalSince1970: 1_790_000_000)

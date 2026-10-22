@@ -69,7 +69,7 @@ final class BookReplayUnfinishTests: XCTestCase {
         XCTAssertEqual(BookPlayback.secondsIntoBook(chapterIndex: 0, seconds: 59, documentID: "doc", clippings: clippings), 59)
     }
 
-    /// Right after finishing, the last chapter starting once more (as the TBX-10974 walk saw on
+    /// Right after finishing, the last chapter starting once more (as the walk saw on
     /// the iPhone) must not undo the finish: the position was already past the first minute.
     func testTheTickAfterFinishingDoesNotUndoIt() {
         finish()

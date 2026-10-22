@@ -18,7 +18,7 @@ final class ClippingMenuUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

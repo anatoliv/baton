@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which link a set of picked songs makes (specs/collection-sharing.md, decision 7, TBX-1000000485).
+/// Which link a set of picked songs makes (specs/collection-sharing.md, decision 7).
 ///
 /// One song goes as a song link, 2 to 12 within the advertised mixtape limits as a mixtape link,
 /// anything bigger as an album or playlist link when the service advertises collections, and

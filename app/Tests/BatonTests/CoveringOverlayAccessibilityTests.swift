@@ -4,7 +4,7 @@ import SwiftUI
 import XCTest
 @testable import Baton
 
-/// The Mac half of the check TBX-5314 ran on the phone with XCUITest: when a full-screen
+/// The Mac half of the check an internal task ran on the phone with XCUITest: when a full-screen
 /// overlay covers live content, does the covered content actually leave the accessibility
 /// tree, or is it only painted over?
 ///

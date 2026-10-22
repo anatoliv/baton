@@ -207,7 +207,7 @@ struct SpeechSessionVoiceTests {
         #expect(SpeechConfig.assignedVoice(for: "alpha") == "kokoro:af_sky")
     }
 
-    // MARK: - The move onto VersionedStore (S-F14 / TBX-5354)
+    // MARK: - The move onto VersionedStore (S-F14)
 
     /// Exactly what the pre-`VersionedStore` setters wrote: a bare JSON blob under the same
     /// key, no envelope.

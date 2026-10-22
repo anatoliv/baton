@@ -131,7 +131,7 @@ final class NavidromeConfigRecoveryTests: XCTestCase {
 
     // MARK: - S-F15: a refused write must not delete the last copy
 
-    /// The same bug TBX-5268 fixed on the read path. On a device still holding a legacy
+    /// The same bug an internal task fixed on the read path. On a device still holding a legacy
     /// plaintext value, a `SecItemAdd` refused under `errSecInteractionNotAllowed` used to
     /// remove the only surviving copy of the credential.
     func testARefusedWriteLeavesTheLegacyPlaintextCopyReadable() {

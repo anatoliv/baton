@@ -4,9 +4,9 @@ import Foundation
 ///
 /// The gateway logged nothing at all: over a full uptime `docker logs baton-gateway` was a single
 /// "listening on :8788" and whatever the Swift runtime shouted on its own. That is how the leaked
-/// continuation of TBX-4029 came to light — by accident, while looking for something else.
+/// continuation of an internal task came to light — by accident, while looking for something else.
 ///
-/// It cost a diagnosis too. TBX-4019 was "a rename on the Mac never reaches the phone", and the
+/// It cost a diagnosis too. An internal task was "a rename on the Mac never reaches the phone", and the
 /// one question that would have settled it in seconds — *is the phone calling `/v1/state` at all?*
 /// — had no answer here. It was settled instead by exporting the Mac's `UserDefaults`, decoding a
 /// ledger blob and comparing `device` stamps across 24 keys.
@@ -54,7 +54,7 @@ public enum RequestLog {
         // spoofing this agent. It is loopback-only in practice, the caller still gets a 401 and
         // learns nothing, and the User-Agent is in a public repo — so the honest description is
         // that one class of *refused* probe becomes invisible. When the source address lands in
-        // this line (the open recommendation on TBX-5065), gate this on 127.0.0.1 and even that
+        // this line (the open recommendation on an internal task), gate this on 127.0.0.1 and even that
         // goes away.
         if method == "GET", path == statePath, status == 401, caller(userAgent) == healthcheckAgent {
             return nil
@@ -64,7 +64,7 @@ public enum RequestLog {
 
     /// Write the line for a request that has just been answered, if it deserves one.
     ///
-    /// **Every response goes through here, including an upload's** (TBX-5308, S-F26). The logging
+    /// **Every response goes through here, including an upload's**. The logging
     /// used to sit in the router's own wrapper, which the streaming upload never reaches — so the
     /// one route that writes caller-controlled bytes to disk *before* checking a token left no
     /// trace at all, and a phone whose uploads were all refused looked identical to one that never

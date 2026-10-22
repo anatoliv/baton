@@ -119,7 +119,7 @@ function confirmation(index, message = "") {
   controls(); $("confirm").focus();
 }
 // The transport's 503 "capacity" answers before the service handles the request, so it charged
-// nothing: no play, no transfer bytes (TBX-1000000495).
+// nothing: no play, no transfer bytes.
 const uncharged = error => error.status === 503 && error.code === "capacity";
 async function admit() {
   const before = everAdmitted;
@@ -136,7 +136,7 @@ async function admit() {
       !Number.isSafeInteger(value.remainingPlays) || value.remainingPlays < 0) throw new ShareCryptoError("format", "Invalid session");
   if (closed) return;
   // A session past the loaded deadline means the sender extended the link. The session ends within
-  // 30 minutes, not with the link, so the link's new end comes from its details (TBX-1000000495).
+  // 30 minutes, not with the link, so the link's new end comes from its details.
   if (deadline > containerDeadline) refreshEnds();
   session = { token: value.token, expiresAt: deadline, remainingBytes: value.remainingBytes };
   remainingPlays = value.remainingPlays; chips();
@@ -308,7 +308,7 @@ window.addEventListener("pagehide", dispose);
 window.addEventListener("hashchange", () => { dispose(); location.reload(); });
 // On a phone the player card docks under the list (mixtape.css). Keep the DOM in that order too,
 // so Tab meets the card where the eye does (WCAG 2.4.3): the list and reactions move, never the
-// card, so the <audio> inside it is not detached. Focus inside a moved node stays put. (TBX-1000000079)
+// card, so the <audio> inside it is not detached. Focus inside a moved node stays put.
 const phone = matchMedia("(max-width: 640px)");
 function placeCard() {
   const card = $("card"), moving = [$("tracks"), $("reactions")], focused = document.activeElement;

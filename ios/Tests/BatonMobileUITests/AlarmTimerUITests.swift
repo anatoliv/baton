@@ -1,6 +1,6 @@
 import XCTest
 
-/// The quick Timer, end to end (TBX-1000000112, specs/alarm-and-timer.md).
+/// The quick Timer, end to end.
 ///
 /// The owner's three complaints about TestFlight 1.5.4, walked in order: the timer is set from the
 /// player's clock, not Settings; "Then play" is changed through the picker to a track that is not
@@ -21,7 +21,7 @@ final class AlarmTimerUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
         app = XCUIApplication.batonUnderTest()
-        // TBX-5336: launchEnvironment, not launchArguments.
+        // launchEnvironment, not launchArguments.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

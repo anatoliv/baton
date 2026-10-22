@@ -2,7 +2,7 @@ import BatonSubsonicKit
 import Foundation
 
 /// The document waiting for its import screen, kept on disk until that screen closes
-///. A file shared from another app is taken out of the share inbox once, so before
+/// A file shared from another app is taken out of the share inbox once, so before
 /// this a force-quit between the hand-over and the import screen closing lost it for good.
 ///
 /// One folder in Application Support: the app's own copy of the file (moved in from the
@@ -79,7 +79,7 @@ struct PendingImportStore {
 
     /// Forget a kept document past `maximumAge` without offering it: `restore` runs only while
     /// Documents is on, so with it off a kept file stayed on the phone indefinitely
-    /// (TBX-1000000505 B-22). One still in date is left for when Documents is on again.
+    /// One still in date is left for when Documents is on again.
     func dropIfExpired(now: Date = Date()) {
         guard FileManager.default.fileExists(atPath: directory.path) else { return }
         let decoder = JSONDecoder()

@@ -131,10 +131,8 @@ final class ClippingRevoicer {
     // MARK: The gateway, as Settings configures it
 
     private static func gateway() -> GatewayFiles? {
-        let raw = (BatonStorage.defaults.string(forKey: "baton.agent.gatewayURL") ?? "").trimmingCharacters(in: .whitespaces)
-        let token = (NavidromeKeychain.secret(account: "baton.agent.gatewayToken") ?? "").trimmingCharacters(in: .whitespaces)
-        guard !raw.isEmpty, !token.isEmpty, let url = URL(string: raw), url.host != nil else { return nil }
-        return GatewayFiles(gatewayURL: url, token: token)
+        guard let gateway = BearerGateway.configured() else { return nil }
+        return GatewayFiles(gatewayURL: gateway.url, token: gateway.token)
     }
 
     private static func gatewayUpload(_ file: URL, _ name: String, _ origin: String?) async throws -> String? {

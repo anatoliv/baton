@@ -109,7 +109,7 @@ final class DeviceLinkTests: XCTestCase {
     /// A command arriving with nobody parked queues, and the next poll takes it — **while the
     /// caller is still waiting for it**.
     ///
-    /// The timing used to be implicit and is now stated (TBX-5308, S-F12): the dispatch and the
+    /// The timing used to be implicit and is now stated: the dispatch and the
     /// poll overlap, because a command is only worth delivering while somebody is still listening
     /// for the answer. The old version of this test let the dispatch expire first and then
     /// collected the command anyway, which is precisely the defect the card is about.
@@ -138,7 +138,7 @@ final class DeviceLinkTests: XCTestCase {
                        "a queued command is handed to the next poll")
     }
 
-    // MARK: - Expiry (TBX-5308, S-F12)
+    // MARK: - Expiry
 
     /// A command whose caller has given up must not be played a minute later.
     ///

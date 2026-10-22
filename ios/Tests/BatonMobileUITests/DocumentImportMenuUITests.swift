@@ -1,6 +1,6 @@
 import XCTest
 
-/// Books' + menu (M5.2; on Clippings until TBX-11018): "Import a File…" and "Import a Link…" each reach the import screen.
+/// Books' + menu (M5.2; on Clippings until an internal task): "Import a File…" and "Import a Link…" each reach the import screen.
 /// `DocumentImportUITests` hands its document in at launch; these press the menu a person
 /// presses.
 ///

@@ -1,7 +1,7 @@
 import XCTest
 
 /// Measures, rather than remembers, whether `app.launchEnvironment` actually reaches the
-/// process every time — the property TBX-5336 exists because of.
+/// process every time — the property an internal task exists because of.
 ///
 /// WS13's count over repeated runs found `app.launchArguments` dropping a whole `-key
 /// value` group on roughly 38% of launches: not the boolean parsing an earlier finding

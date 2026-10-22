@@ -44,7 +44,7 @@ public struct FileStore: Sendable {
     /// Everything held, together. Past this the oldest goes.
     public static let defaultMaximumTotalBytes = 512 * 1024 * 1024
     /// `name` comes straight from the caller's `X-Baton-Name` header, whose only bound is the
-    /// transport's 32 KB header cap (TBX-5325, TBX-5308 S-F26). Truncated rather than refused —
+    /// transport's 32 KB header cap. Truncated rather than refused —
     /// a display name is not something an upload should fail over — so every sidecar file and
     /// every `list()` response stays a display name's size, not a header's.
     public static let maximumNameLength = 255
@@ -158,7 +158,7 @@ public struct FileStore: Sendable {
     /// They are not exempt from either bound; the Mac tells the person when one did not arrive.
     ///
     /// `keepingLast` is the file a commit has just written. Its group goes after every other, so
-    /// an upload that was answered 201 is not evicted by its own commit (TBX-1000000493 review).
+    /// an upload that was answered 201 is not evicted by its own commit.
     public func prune(now: Date = Date(), keepingLast justCommitted: String? = nil) {
         for group in groups(list()) where group.files.contains(where: { now.timeIntervalSince($0.createdAt) > maximumAge }) {
             for meta in group.files { remove(id: meta.id) }

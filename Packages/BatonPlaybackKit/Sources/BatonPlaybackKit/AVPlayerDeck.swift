@@ -437,7 +437,7 @@ public final class AVPlayerDeck: PlaybackDeck {
     /// Owe an in-place seek a retry.
     ///
     /// While playing, the clock runs meanwhile: holding it at the target while the audio played
-    /// from where it was is the TBX-1000000492 symptom over again. And the retry cannot rely on the seekable
+    /// from where it was is the symptom over again. And the retry cannot rely on the seekable
     /// ranges changing, which KVO reports only as a change: when they were already known before
     /// this completion parked it, nothing retried it while playing (review finding). Then it is
     /// tried again after a short wait, under the same bound on attempts.

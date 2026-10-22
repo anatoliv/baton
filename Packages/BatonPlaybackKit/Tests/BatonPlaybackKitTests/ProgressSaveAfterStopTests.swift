@@ -2,7 +2,7 @@ import XCTest
 @testable import BatonPlaybackKit
 
 /// Stop rewinds the player to 0:00, and that rewind's clock tick must not be saved as the
-/// listener's place (TBX-10974: a book stopped in chapter 2 at 0:30 resumed at 0:00 of chapter 2
+/// listener's place (a book stopped in chapter 2 at 0:30 resumed at 0:00 of chapter 2
 /// on the Mac and on the iPhone).
 final class ProgressSaveAfterStopTests: XCTestCase {
     func testTheRewindAfterStopIsNotSaved() {

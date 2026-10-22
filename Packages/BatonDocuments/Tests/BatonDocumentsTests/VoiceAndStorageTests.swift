@@ -30,7 +30,7 @@ final class VoiceCatalogueTests: XCTestCase {
         XCTAssertEqual(VoiceCatalogue.candidates(language: "es", available: available).map(\.spec), [])  // ungraded
     }
 
-    /// TBX-10916: the voices heard as good for narration lead, then narration-and-dialogue, then
+    /// The voices heard as good for narration lead, then narration-and-dialogue, then
     /// the dialogue-only ones, best grade first within each.
     func testNarrationVoicesLeadTheCandidates() {
         let available = ["kokoro:af_bella", "kokoro:am_santa", "kokoro:bm_george", "kokoro:am_adam", "kokoro:bf_emma",
@@ -40,7 +40,7 @@ final class VoiceCatalogueTests: XCTestCase {
                         "kokoro:af_bella", "kokoro:am_santa"])
     }
 
-    /// TBX-10916: Heart for American or unspecified English, Emma for British, only when the
+    /// Heart for American or unspecified English, Emma for British, only when the
     /// engine offers it; nothing for other languages, so the configured default stands.
     func testTheEnglishNarratorDefault() {
         let both = ["kokoro:af_heart", "kokoro:bf_emma", "kokoro:bm_george"]
@@ -157,7 +157,7 @@ final class VoiceCasterTests: XCTestCase {
         XCTAssertTrue(([down.primary] + down.alternates).allSatisfy(available.contains))
     }
 
-    /// TBX-10916: with no model, Emma for a book that declared British English, Heart for any
+    /// With no model, Emma for a book that declared British English, Heart for any
     /// other English, each only when offered; otherwise, and for other languages, the configured
     /// default as before.
     func testTheNarratorDefaultWhenNoModelSuggestsOne() async {

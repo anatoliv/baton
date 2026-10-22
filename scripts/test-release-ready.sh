@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # scripts/release-ready.sh names every release precondition up front, prints no secret, and
-# reads the gate lock without taking it. (TBX-11003) Stubs stand in for the vault, the
+# reads the gate lock without taking it. Stubs stand in for the vault, the
 # keychain, simulators and processes; the lock and credentials are temporary. A few seconds.
 # shellcheck disable=SC2016 # stubs and greps carry literal $NAMES
 set -uo pipefail

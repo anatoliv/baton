@@ -34,7 +34,7 @@ public struct PreparedBook: Codable, Sendable, Equatable {
         self.chapters = chapters
     }
 
-    /// The same book read by another narrator (Change Voice, TBX-10989): the words, the cast,
+    /// The same book read by another narrator (Change Voice): the words, the cast,
     /// the pronunciations and the audio settings are kept, and the job id follows the new voice.
     public func inVoice(_ narrator: String) -> PreparedBook {
         var book = self
@@ -194,7 +194,7 @@ public struct VoicePlan: Codable, Sendable, Equatable {
         return VoicePlan(narrator: narrator, speed: suggested ? suggestion?.speed : nil, style: style, direction: direction)
     }
 
-    /// The plan with another narrator (Change Voice, TBX-10989). The cast is the book's and is
+    /// The plan with another narrator (Change Voice). The cast is the book's and is
     /// kept: each character keeps the voice it has, and only the narrator changes. The speed
     /// belongs to the voice it was suggested for, so another narrator reads at its own pace; the
     /// style is the book's tone and stays for a Chatterbox narrator, and a Kokoro one takes none.

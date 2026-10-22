@@ -145,7 +145,7 @@ final class ClippingSleepTimerTests: XCTestCase {
         XCTAssertFalse(c.sleepTimerArmed)
     }
 
-    /// Changing the timer during the fade keeps the music audible (TBX-1000000480 C1-5). The
+    /// Changing the timer during the fade keeps the music audible. The
     /// fade ran on to silence, and the stop it was heading for was refused because the timer
     /// had changed, so the track played on at zero volume.
     func testANewTimedSleepDuringTheFadeKeepsTheMusicAudible() {

@@ -8,7 +8,7 @@ import XCTest
 import FoundationNetworking
 #endif
 
-/// A whole-book create retried after its App Attest challenge has lapsed (TBX-1000000132 review):
+/// A whole-book create retried after its App Attest challenge has lapsed:
 /// the kit client against the real service with App Attest on, through the same bridge as
 /// ShareBookClientServiceTests. A challenge lasts 300 s; a Retry Upload an hour later must still
 /// make the same book, with the same body and its `requestID`, under a fresh proof.

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Does opening the menu bar menu freeze Baton when crash reporting is on? (TBX-7352)
+# Does opening the menu bar menu freeze Baton when crash reporting is on?
 #
 #   scripts/probe-menubar-freeze.sh <Baton.app> [launches] [evidence-dir]
 #
@@ -17,7 +17,7 @@
 #      queue still runs during menu tracking; the frozen app cannot answer.
 #
 # The freeze needs the crash-reporting SDK to start on its background queue, so a launch where
-# reporting did not start cannot show it and proves nothing (TBX-7376). Such a launch is
+# reporting did not start cannot show it and proves nothing. Such a launch is
 # INCONCLUSIVE, never PASS. That is what a probe built without app/Config/Crashbox.local.xcconfig
 # gives you: scripts/probe-build.sh warns on stderr, which `| tail -1` hides.
 #
@@ -29,7 +29,7 @@ set -uo pipefail
 APP="$1"; LAUNCHES="${2:-3}"; EVIDENCE="${3:-}"
 . "$(dirname "$0")/probe-lib.sh"
 [ -n "$EVIDENCE" ] && mkdir -p "$EVIDENCE"
-# One probe run at a time on this machine (TBX-7383): the screen and keyboard are shared.
+# One probe run at a time on this machine: the screen and keyboard are shared.
 probe_lock_acquire || exit 3
 trap probe_lock_release EXIT
 

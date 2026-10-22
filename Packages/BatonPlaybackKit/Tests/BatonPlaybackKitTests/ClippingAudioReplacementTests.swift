@@ -170,7 +170,7 @@ final class ClippingAudioReplacementTests: XCTestCase {
     /// A kept reading read again in another voice (the Mac's Change Voice on a reading) is a file
     /// on this device but not a book chapter: it too opens at its start and seeks to the place,
     /// rather than asking a file for a stream offset nothing honours, which played the new voice
-    /// from 0:00 under a playhead that said otherwise (review of TBX-1000000105).
+    /// from 0:00 under a playhead that said otherwise (review of an internal task).
     func testAPausedReadingResumesInTheNewVoiceAtTheSamePlace() async throws {
         let reading = try store.adopt(wav(seconds: 20, frequency: 330), title: "Ghostty reading", sourceName: "Ghostty",
                                       durationSeconds: 20, text: "Words.", voice: "kokoro:af_heart")
@@ -216,7 +216,7 @@ final class ClippingAudioReplacementTests: XCTestCase {
     }
 
     /// Change Voice without a hold removed the old audio before moving the new file in, so a
-    /// failed move left the clipping with no audio (TBX-1000000506, C2-17).
+    /// failed move left the clipping with no audio.
     func testAFailedReplacementWithoutAHoldKeepsTheOldAudio() throws {
         let item = try XCTUnwrap(store.item(id: chapters[0].id))
         let before = try Data(contentsOf: item.url)
@@ -228,7 +228,7 @@ final class ClippingAudioReplacementTests: XCTestCase {
     }
 
     /// A ledger that could not be encoded (a NaN book position) was written as nil, which
-    /// removed the key and every title, tombstone and place in it (TBX-1000000506, C2-18).
+    /// removed the key and every title, tombstone and place in it.
     func testALedgerThatCannotBeEncodedLeavesTheStoredOneAlone() throws {
         var ledger = store.ledger
         ledger.setPosition(documentID: "doc-1", chapterIndex: 1, seconds: 12)

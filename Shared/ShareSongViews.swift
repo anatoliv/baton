@@ -365,7 +365,7 @@ struct SharedLinksView: View {
                     Text(notice).font(.caption).foregroundStyle(.orange)
                 }
                 if record.containerKind == .book {
-                    Text(bookLine(record, summary)).font(.caption)
+                    Text(Self.bookLine(record, summary)).font(.caption)
                     if let deadline = record.bookSummary?.reviewDeadline, let date = ShareDate.date(deadline) {
                         Text("Review deadline: \(date.formatted(date: .abbreviated, time: .shortened))").font(.caption)
                     }
@@ -423,7 +423,8 @@ struct SharedLinksView: View {
     }
 
     /// "30 chapters · 4 of 10 listeners · Read-along text", or "Album · 14 songs · 4 of 10 listeners".
-    private func bookLine(_ record: ShareLedger.Record, _ summary: ShareSummary) -> String {
+    /// Static so a test can read the row as it is drawn (`SharedLinksRowTests`).
+    static func bookLine(_ record: ShareLedger.Record, _ summary: ShareSummary) -> String {
         var parts = [String]()
         if let kind = record.collectionKind {
             parts.append(SongSharing.noun(kind))

@@ -218,7 +218,7 @@ final class RouterTests: XCTestCase {
     }
 
     /// `Authorization: bearer <token>` is spec-legal and must work: one auth check written
-    /// twice is one that will disagree with itself (TBX-5308, S-F26).
+    /// twice is one that will disagree with itself.
     func testAuthenticationAcceptsALowercaseBearerScheme() async {
         let router = recordingRouter(Recorder())
         let message = HTTPRequestMessage(method: "GET", path: "/v1/state", query: [:],

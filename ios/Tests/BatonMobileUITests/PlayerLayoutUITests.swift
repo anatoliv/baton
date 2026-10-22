@@ -19,7 +19,7 @@ final class PlayerLayoutUITests: XCTestCase {
         app = XCUIApplication.batonUnderTest()
         // Bundled demo library, not the network — the same reasoning as
         // `DynamicTypePlayerUITests`: layout has nothing to do with a server.
-        // TBX-5336: launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
+        // launchEnvironment, not launchArguments — see CLAUDE.md's UI-test section.
         app.launchEnvironment["baton.resetSession"] = "1"
         app.launchEnvironment["baton.demoMode"] = "YES"
         app.launchEnvironment["uitestBypassBiometrics"] = "1"

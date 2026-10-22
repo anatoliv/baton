@@ -15,7 +15,7 @@ struct TranscriptSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var coordinator = TranscriptionCoordinator.shared
     /// Whether the transcript still follows the playhead. Stops the moment the reader scrolls,
-    /// resumes only when they ask. See the Mac pane and TBX-2986: the highlight moves several
+    /// resumes only when they ask. See the Mac pane and an internal task: the highlight moves several
     /// times a second, so following after a manual scroll dragged the list straight back and
     /// made the transcript impossible to read ahead of the audio.
     @State private var isFollowing = true

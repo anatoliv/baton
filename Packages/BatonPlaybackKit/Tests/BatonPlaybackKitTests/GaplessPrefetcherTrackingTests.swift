@@ -3,7 +3,7 @@ import XCTest
 
 /// A prefetch reaped and started again for the same song: the first one finishing used to
 /// remove the second's entry, so the second was no longer tracked, reaped or cancelled
-/// (TBX-1000000506, C1-21).
+///
 @MainActor
 final class GaplessPrefetcherTrackingTests: XCTestCase {
     func testAnOlderPrefetchFinishingDoesNotForgetTheNewerOne() async throws {

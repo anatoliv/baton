@@ -6,8 +6,8 @@ import XCTest
 /// It is called from the same `MTAudioProcessingTap` callback as the equalizer, one level
 /// below `EQTapContext.process(_:)`, on every buffer for as long as anything is playing. Any
 /// heap allocation there can block on the malloc lock and glitch the audio. The EQ side has
-/// had this test since PR #113 (`EQRenderAllocationTests`) and TBX-5360; this is the same
-/// measurement for the meter, which TBX-5360 deliberately left out by passing `levels: nil`.
+/// had this test since PR #113 (`EQRenderAllocationTests`) and an internal task; this is the same
+/// measurement for the meter, which an internal task deliberately left out by passing `levels: nil`.
 ///
 /// What it caught: in a debug build, `for i in 0 ..< frames` and the nested
 /// `for c in 0 ..< channelCount` iterate a `Range` through `IndexingIterator`'s unspecialized

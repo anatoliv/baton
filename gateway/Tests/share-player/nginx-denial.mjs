@@ -45,7 +45,7 @@ try {
   writeFileSync(join(work,'site/404.html'),'Synthetic denial page\n',{mode:0o644});
   writeFileSync(join(work,'site/index.html'),'Synthetic route check\n',{mode:0o644});
   writeFileSync(join(work,'blobs/nginx-denial-fixture/audio'),'synthetic blob exists; direct access must fail\n',{mode:0o644});
-  // A readable DMG, the control for the error cache-policy checks (TBX-1000000064). An
+  // A readable DMG, the control for the error cache-policy checks. An
   // unreadable one (the 0.20.5 release's 403) is not reproducible here: Docker Desktop's
   // file sharing lets nginx read a 0600 file, so the 403 below comes from `return 403`.
   writeFileSync(join(work,'site/Baton-0.0.1.dmg'),'synthetic dmg\n',{mode:0o644});
@@ -109,7 +109,7 @@ http { include /etc/nginx/mime.types; access_log off; client_body_temp_path /tmp
     result.checks.push({method,path,status:response.status,proxied:false});
   }
   // Errors are never cacheable (web-cache-policy.md), whatever the URI's own policy. A DMG
-  // path's own policy is a 30-day immutable one, and before TBX-1000000064 only a 404 was
+  // path's own policy is a 30-day immutable one, and before an internal task only a 404 was
   // exempt from it, so a 403 or 500 on a DMG path carried it to Cloudflare.
   result.cachePolicy = [];
   const cacheCase = async (path, status, policy, method = 'GET', headers = {}) => {

@@ -166,7 +166,7 @@ if (viaNginx) {
   site = swap(site, "/etc/nginx/conf.d/share-proxy.inc", `${confPath}/share-proxy.inc`);
   site = swap(site, "alias /srv/baton-share/blobs/;", `alias ${dockerNginx ? "/data/blobs" : join(dataDir, "blobs")}/;`);
   site = swap(site, '"http://baton-share:8790"', `"${dockerNginx ? direct.replace("127.0.0.1", "host.docker.internal") : direct}"`);
-  // The site's server-level access_log lines (TBX-1000000489) would override the http-level
+  // The site's server-level access_log lines would override the http-level
   // choice below and need /var/log/nginx, which a host nginx lacks. The share log's own
   // format is tested by deploy/test-share-log-format.sh.
   for (const format of ["baton_site  if=$baton_log_site;", "baton_share if=$baton_log_share;"])
@@ -264,7 +264,7 @@ try {
     assert.equal((await ranged.arrayBuffer()).byteLength, 100);
     assert.equal(ranged.headers.get("cache-control"), "private, no-store", "the audio stays uncacheable through nginx");
     if (viaNginx && !publicOnly) {
-      // Range spellings only raw bytes can carry (TBX-1000000494): nginx answers from the first of
+      // Range spellings only raw bytes can carry: nginx answers from the first of
       // two Range headers and skips only spaces before a value, so each of these gets the whole
       // file, and each must count. The strict continuation alone gets 206 and does not.
       // A share of its own, so the friend's walk below keeps its exact counts.
@@ -292,7 +292,7 @@ try {
         socket.on("error", reject);
       });
       const fetches = async () => (await api("GET", "/v1/share/shares")).json.shares.find((share) => share.id === spelled.json.id).stats.fetches;
-      // An upload refused from its head while its body is still arriving (TBX-1000000496 D-15): the
+      // An upload refused from its head while its body is still arriving: the
       // service answers before reading the body, and nginx (request buffering off) must still pass
       // the 401 on rather than a 502 from a reset connection.
       // Ten times, with the body sent as fast as it goes: the reset it guards against is a race.
@@ -520,7 +520,10 @@ try {
   // ---------- What the sharer sees ----------
 
   step("checking what the sharer sees");
-  const mine = (await api("GET", "/v1/share/shares")).json.shares[0];
+  // By id, not shares[0]: through nginx the Range-spelling share is created in the same second,
+  // and the list breaks a created_at tie by id, so the newest-first order was a coin toss.
+  const mine = (await api("GET", "/v1/share/shares")).json.shares.find((share) => share.id === id);
+  assert.ok(mine, "the friend's share is in the sharer's list");
   console.log(`    stats ${JSON.stringify(mine.stats)} reactions ${JSON.stringify(mine.reactions.map((r) => [r.emoji, r.name, r.reply]))}`);
   assert.equal(mine.stats.plays, 1);
   assert.equal(mine.stats.listened30s, 1);
@@ -719,7 +722,7 @@ try {
     }
   }
 
-  // ---------- A book's chapters (AAC) on both players, TBX-1000000132 ----------
+  // ---------- A book's chapters (AAC) on both players, an internal task ----------
 
   if (publicOnly) skips.push("book chapters: no book fixtures against a public service");
   else {
@@ -727,7 +730,7 @@ try {
     if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
   }
 
-  // ---------- The mixtape page (/m/), TBX-1000000067 ----------
+  // ---------- The mixtape page (/m/), an internal task ----------
 
   if (publicOnly) skips.push("mixtape page: no mixtape fixtures against a public service");
   else {
@@ -735,7 +738,7 @@ try {
     if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
   }
 
-  // ---------- The whole-book page (/b/), TBX-1000000132 ----------
+  // ---------- The whole-book page (/b/), an internal task ----------
 
   if (publicOnly) skips.push("book page: no book fixtures against a public service");
   else {
@@ -744,7 +747,7 @@ try {
     if (skipped) { skips.push(skipped); step(`SKIP ${skipped}`); }
   }
 
-  // ---------- The album and playlist page (/b/ with a collection kind), TBX-1000000485 ----------
+  // ---------- The album and playlist page (/b/ with a collection kind), an internal task ----------
 
   if (publicOnly) skips.push("collection page: no collection fixtures against a public service");
   else {

@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Baton gates and releases on this machine must not kill each other, a dead owner must not
-# wedge the next run, and a run must hold only the resources it uses. (TBX-5291, TBX-11003)
+# wedge the next run, and a run must hold only the resources it uses.
 #
 # WHY THIS EXISTS. On 2026-09-08 at 17:20 a gate died at the Mac suite with the BATON-DIAG
 # runner-death signature, and the backtrace named `_handleAEQuit`: a Quit Apple Event from
@@ -207,7 +207,7 @@ else
   ok "BATON_GATE_LOCK_WAIT=0 refuses with the original message, word for word"
 fi
 
-# This was the hole left by the first TBX-5291 fix. publish.sh used to reap /tmp/baton-dd
+# This was the hole left by the first an internal task fix. publish.sh used to reap /tmp/baton-dd
 # before its nested test.sh acquired the lock, so it could kill this holder even though
 # gate against gate contention was covered.
 out="$(contend_release)"; rc=$?
@@ -452,7 +452,7 @@ fi
 
 # --- 12. A busy lock is waited for, and its holder named once ---------------------------
 #
-# The point of TBX-11003: a gate that finds the test host busy waits its turn instead of
+# The point of an internal task: a gate that finds the test host busy waits its turn instead of
 # throwing away the steps it already ran. The holder is named once, not once per poll.
 
 rm -f "$LOCK"
@@ -854,7 +854,7 @@ fi
 
 # --- 26. An older whole-run holder holds every resource, as before -----------------------
 #
-# Review finding S1: a checkout from before TBX-11003 holds only /tmp/baton-gate.lock, for its
+# Review finding S1: a checkout from before an internal task holds only /tmp/baton-gate.lock, for its
 # whole run, under `lockf -k`. New runs must treat it as holding simulators and DerivedData too.
 
 rm -f "$LOCK"
@@ -927,14 +927,14 @@ if [ -z "$mac_lock_line" ] || [ -z "$mac_unlock_line" ] || [ -z "$mac_test_line"
 elif [ "$mac_lock_line" -ge "$mac_test_line" ] || [ "$mac_unlock_line" -le "$mac_test_line" ] \
      || [ $((mac_test_line - mac_lock_line)) -gt 8 ] || [ $((mac_unlock_line - mac_test_line)) -gt 14 ]; then
   bad "wiring: mac-app-host no longer wraps just the Mac xcodebuild test (lock $mac_lock_line, test $mac_test_line, unlock $mac_unlock_line)"
-elif ! sed -n "${mac_test_line},$((mac_test_line + 3))p" scripts/test.sh | grep -q -- '-scheme "\$SCHEME"'; then
+elif ! grep -q -- '-scheme "\$SCHEME"' <<<"$(sed -n "${mac_test_line},$((mac_test_line + 3))p" scripts/test.sh)"; then
   bad "wiring: the locked xcodebuild test is not the Baton scheme's"
 else
   ok "wiring: mac-app-host is held around the Mac app-hosted xcodebuild test and nothing else"
 fi
 
 if [ "$(grep -c 'gate_lock_acquire' scripts/test.sh)" = 1 ] \
-   && grep -A6 '^mac_step_lock()' scripts/test.sh | grep -q 'gate_lock_acquire gate'; then
+   && grep -q 'gate_lock_acquire gate' <<<"$(grep -A6 '^mac_step_lock()' scripts/test.sh)"; then
   ok "wiring: test.sh takes mac-app-host only inside the Mac step"
 else
   bad "wiring: test.sh takes mac-app-host somewhere other than the Mac step"
@@ -945,7 +945,7 @@ sim_unlock_line="$(grep -n 'step_unlock "sim-\$IOS_SIM_UDID"' scripts/test.sh | 
 ios_test_line="$(grep -n '^    xcodebuild test \\$' scripts/test.sh | cut -d: -f1)"
 if [ -n "$sim_lock_line" ] && [ -n "$sim_unlock_line" ] && [ -n "$ios_test_line" ] \
    && [ "$sim_lock_line" -lt "$ios_test_line" ] && [ "$ios_test_line" -lt "$sim_unlock_line" ] \
-   && sed -n "${ios_test_line},$((ios_test_line + 3))p" scripts/test.sh | grep -q 'id=\$IOS_SIM_UDID'; then
+   && grep -q 'id=\$IOS_SIM_UDID' <<<"$(sed -n "${ios_test_line},$((ios_test_line + 3))p" scripts/test.sh)"; then
   ok "wiring: the iPhone simulator step holds sim-<UDID> for its own device"
 else
   bad "wiring: the iPhone simulator step is not wrapped in its sim-<UDID> lock"
@@ -980,11 +980,12 @@ else
   bad "wiring: publish.sh holds mac-app-host past its last reap (reap $pack_reap, release ${pack_release:-none})"
 fi
 
+publish_cleanup_body="$(sed -n '/^publish_cleanup() {/,/^}/p' scripts/publish.sh)"
 if grep -q '^trap publish_cleanup EXIT$' scripts/publish.sh \
    && grep -q "^trap 'exit 130' INT$" scripts/publish.sh \
    && grep -q "^trap 'exit 143' TERM$" scripts/publish.sh \
-   && sed -n '/^publish_cleanup() {/,/^}/p' scripts/publish.sh | grep -q 'gate_lock_release' \
-   && sed -n '/^publish_cleanup() {/,/^}/p' scripts/publish.sh | grep -q 'native_lock_release_all'; then
+   && grep -q 'gate_lock_release' <<<"$publish_cleanup_body" \
+   && grep -q 'native_lock_release_all' <<<"$publish_cleanup_body"; then
   ok "wiring: the release releases every lock and intent through every exit path"
 else
   bad "wiring: publish.sh does not release its locks from its shared exit cleanup"
@@ -996,7 +997,7 @@ else
   bad "wiring: nothing compares the kit's native-lock module with the shared _method copy"
 fi
 
-# TBX-11024: the protocol lives in the release kit, pinned by its manifest. Baton's file only
+# The protocol lives in the release kit, pinned by its manifest. Baton's file only
 # configures it; a lock function defined here again would fork the protocol.
 if grep -q '^\. "$(cd "$(dirname "${BASH_SOURCE\[0\]}")" && pwd)/release-kit/lib/native-lock.sh"$' scripts/native-lock.sh \
    && ! grep -qE '^(native_lock_acquire|native_lock_release|_nl_serve|_nl_attempt)\(\)' scripts/native-lock.sh; then
@@ -1005,7 +1006,7 @@ else
   bad "scripts/native-lock.sh no longer just configures scripts/release-kit/lib/native-lock.sh"
 fi
 
-if grep -A4 '^mac_step_unlock()' scripts/test.sh | grep -q 'reap_own_test_hosts'; then
+if grep -q 'reap_own_test_hosts' <<<"$(grep -A4 '^mac_step_unlock()' scripts/test.sh)"; then
   ok "wiring: the Mac step ends its own leftover test host before giving up mac-app-host"
 else
   bad "wiring: mac_step_unlock gives up mac-app-host without ending its own test host"
@@ -1017,7 +1018,7 @@ else
   bad "wiring: TestFlight's gate does not ask for release priority"
 fi
 
-# --- 28. Baton's defaults are Tonebox's interface (review K3, TBX-11024) -------------------
+# --- 28. Baton's defaults are Tonebox's interface (review K3) -------------------
 #
 # Every case above moves the locks to temporary paths. This one only RESOLVES the defaults, in
 # a clean environment, without taking, reading or signalling any lock: Tonebox's controller

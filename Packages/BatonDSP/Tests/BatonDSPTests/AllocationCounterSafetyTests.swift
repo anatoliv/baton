@@ -57,7 +57,7 @@ private enum CThreads {
 }
 
 /// The malloc hook `AllocationCounter` installs is process-global: while a measurement is open
-/// it runs on every thread that allocates, not only the one being measured. TBX-5373 is what
+/// it runs on every thread that allocates, not only the one being measured. An internal task is what
 /// happens when the hook is not written for that. It read a Swift `static var`, a `var` read in
 /// a debug build calls `swift_beginAccess`, and on a thread with no exclusivity thread-local
 /// yet that heap-allocates, which calls the hook again until the stack runs out.

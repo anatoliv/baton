@@ -5,7 +5,7 @@ import XCTest
 /// Stall behaviour. Wall-clock-driven, so the renders here are *paced* — pulled at roughly
 /// realtime — and the assertions scan the output rather than index into exact positions.
 ///
-/// The crossfade half of this file went with the engine's queue (Stage 5 / TBX-2876); the
+/// The crossfade half of this file went with the engine's queue (Stage 5); the
 /// note below says what that cost.
 @MainActor
 final class EngineTransitionAndStallTests: XCTestCase {
@@ -13,7 +13,7 @@ final class EngineTransitionAndStallTests: XCTestCase {
     // `testCrossfadeOverlapsAndNeverGoesSilent` used to live here, and it was a good test:
     // two local servers, real decode, a paced render, and a Goertzel scan proving the two
     // tones actually overlapped and that no half-second window across the transition went
-    // silent. It is deleted with the engine's crossfade (Stage 5 / TBX-2876), because the
+    // silent. It is deleted with the engine's crossfade (Stage 5), because the
     // capability it proved could not run in production — the ramp was gated on the engine's
     // own `crossfadeSeconds`, which nothing outside this suite ever set.
     //

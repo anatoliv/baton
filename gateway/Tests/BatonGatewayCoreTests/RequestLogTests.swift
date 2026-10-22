@@ -186,7 +186,7 @@ final class RequestLogTests: XCTestCase {
         XCTAssertEqual(RequestLog.status(ofResponse: Data("nonsense".utf8)), 0)
     }
 
-    // MARK: - The path as it is safe to write down (TBX-5308, S-F26)
+    // MARK: - The path as it is safe to write down
 
     /// A file id comes off the wire and lands in a line in a file that persists. It goes through
     /// the same whitelist the store uses, so the log is not the one place a rejected id is quoted
@@ -207,7 +207,7 @@ final class RequestLogTests: XCTestCase {
         XCTAssertEqual(RequestLog.safePath("/v1/state?token=abc"), "/v1/state", "a query string is never logged")
     }
 
-    // MARK: - Every response gets its line, uploads included (TBX-5308, S-F26)
+    // MARK: - Every response gets its line, uploads included
 
     /// The logging used to wrap the router, which a streaming upload never reaches — so the one
     /// route that writes caller-controlled bytes to disk before checking a token left no trace.

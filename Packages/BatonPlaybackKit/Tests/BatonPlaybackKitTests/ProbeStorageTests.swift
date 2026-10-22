@@ -5,7 +5,7 @@ import XCTest
 /// The guard for a redirect that only moves half of what it claims to.
 ///
 /// Three cards ended with an unrun Mac half of a sync walk because the Mac app is unsandboxed and
-/// there was no safe way to point it at throwaway storage (TBX-3846, TBX-5123, TBX-5125).
+/// there was no safe way to point it at throwaway storage.
 /// `BatonStorage` is that way. The danger it introduces is specific and quiet: a probe launch that
 /// redirects preferences but still writes the owner's real `remote-memory.json` — or the reverse —
 /// would run a *clean-looking* walk over storage the feature is not actually using, report every

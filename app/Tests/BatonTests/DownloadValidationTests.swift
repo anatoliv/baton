@@ -1,7 +1,7 @@
 import XCTest
 @testable import Baton
 
-///  + : never adopt an HTTP error page as audio; never adopt (and thus never
+/// An internal task + Never adopt an HTTP error page as audio; never adopt (and thus never
 /// let Remove delete) a user's own music files that happen to be in the download folder.
 @MainActor
 final class DownloadValidationTests: XCTestCase {
@@ -16,7 +16,7 @@ final class DownloadValidationTests: XCTestCase {
         return HTTPURLResponse(url: URL(string: "https://s/x")!, statusCode: status, httpVersion: nil, headerFields: headers)!
     }
 
-    // MARK:  — download response validation
+    // MARK: Download response validation
 
     func testRejects404() throws {
         let f = try tempFile(bytes: 4096); defer { try? FileManager.default.removeItem(at: f) }
@@ -39,7 +39,7 @@ final class DownloadValidationTests: XCTestCase {
         XCTAssertNoThrow(try MusicDownloadStore.validateDownloadResponse(http(200, type: "audio/mpeg"), fileURL: f))
     }
 
-    // MARK:  — foreign-file adoption guard
+    // MARK: foreign-file adoption guard
 
     func testForeignMusicFilenamesNotAdopted() {
         XCTAssertFalse(MusicDownloadStore.isPlausibleSubsonicID("01 - Song"))
@@ -52,7 +52,7 @@ final class DownloadValidationTests: XCTestCase {
         XCTAssertTrue(MusicDownloadStore.isPlausibleSubsonicID("al-1234567890abcdef"))
     }
 
-    // MARK:  — original-quality downloads + honest extensions
+    // MARK: original-quality downloads + honest extensions
 
     func testFileExtensionFromContentType() {
         XCTAssertEqual(MusicDownloadStore.fileExtension(forContentType: "audio/flac"), "flac")
@@ -66,7 +66,7 @@ final class DownloadValidationTests: XCTestCase {
         XCTAssertEqual(u.absoluteString, "https://cdn.example.com/ep.m4a")
     }
 
-    // MARK:  — batch failure tracking + cooperative cancellation
+    // MARK: Batch failure tracking + cooperative cancellation
 
     override func tearDown() {
         NavidromeMockURLProtocol.handler = nil
@@ -114,7 +114,7 @@ final class DownloadValidationTests: XCTestCase {
         XCTAssertFalse(store.failedIDs.contains(id), "a successful retry clears the failure")
     }
 
-    // MARK:  / DL-09 — LRU storage-cap eviction planner
+    // MARK: LRU storage-cap eviction planner
 
     func testEvictionPlanIsNoOpWhenUnderCapOrUnlimited() {
         let items = [(id: "a", bytes: Int64(100)), (id: "b", bytes: Int64(100))]

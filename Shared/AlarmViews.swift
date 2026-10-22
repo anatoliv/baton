@@ -3,7 +3,7 @@ import BatonSubsonicKit
 import BatonSubsonicModels
 import SwiftUI
 
-// Alarm and Timer screens, one set for both apps (TBX-11171, rebuilt for TBX-1000000112).
+// Alarm and Timer screens, one set for both apps.
 //
 // The owner, after TestFlight 1.5.4: Settings was the wrong place, setting one has to be quick,
 // it has to be able to play anything, and when it rings the person has to land in the player.
@@ -682,7 +682,7 @@ struct TimerRunningView: View {
 
 /// "Timer 12:34 · then X" above the mini player while a timer runs, and "Alarm 7:00 · then Y"
 /// while an alarm is due within a day. With both set both show: stacked one above the other on
-/// the iPhone, each as wide as the mini player (TBX-1000000410, after TBX-1000000140), side by side
+/// the iPhone, each as wide as the mini player, side by side
 /// in the Mac's player bar. Tapping one opens the sheet on it; its ✕ cancels only that one.
 struct AlarmPill: View {
     let center: AlarmCenter

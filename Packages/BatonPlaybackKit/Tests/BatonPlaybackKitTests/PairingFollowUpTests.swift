@@ -2,7 +2,7 @@ import Network
 import XCTest
 @testable import BatonPlaybackKit
 
-/// Pairing transport follow-ups (TBX-1000000506, C-15 and C-16), over loopback.
+/// Pairing transport follow-ups, over loopback.
 @MainActor
 final class PairingFollowUpTests: XCTestCase {
     /// Redeem queued its Hello on a connection that never came up, and that send never
@@ -38,7 +38,7 @@ final class PairingFollowUpTests: XCTestCase {
     /// On an iPhone the first connection to a LAN host sits in `.waiting` while the Local
     /// Network prompt is up, and a brief loss of route looks the same. Treating `.waiting` as
     /// unreachable failed first pairing before anyone could answer the prompt; redeem waits for
-    /// the deadline instead (TBX-1000000506 review finding 2).
+    /// the deadline instead.
     func testAConnectionThatIsWaitingIsGivenUntilTheDeadline() async throws {
         let listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { $0.cancel() }

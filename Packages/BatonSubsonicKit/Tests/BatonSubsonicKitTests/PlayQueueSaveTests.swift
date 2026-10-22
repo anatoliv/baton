@@ -59,7 +59,7 @@ final class PlayQueueSaveTests: XCTestCase {
     }
 
     /// A song queued twice: the window centred on its first copy, far from the one playing,
-    /// which could fall outside what was saved (TBX-1000000506, C-30).
+    /// which could fall outside what was saved.
     func testTheWindowCentresOnTheCopyThatIsPlaying() async throws {
         var withRepeat = queue
         let repeated = withRepeat[10]

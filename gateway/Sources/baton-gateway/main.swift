@@ -140,7 +140,7 @@ let stateStore = StateStore(fileURL: stateFileURL)
 let uploadStagingDirectory: URL = filesDirectory.appendingPathComponent("staging", isDirectory: true)
 
 // Anything staged is litter, because no upload can be in flight before the listener starts
-// (TBX-5308, S-F13). A process kill or a container stop mid-upload used to leave its partial file
+// A process kill or a container stop mid-upload used to leave its partial file
 // behind for ever: `FileStore.prune` cannot see these, since `list()` filters on `.json` in the
 // parent directory. Before the listener, so a fresh ceiling is not spent on old rubbish.
 let sweptUploads = StreamingUpload.sweepStaging(directory: uploadStagingDirectory)
@@ -202,7 +202,7 @@ let router = routes.router()
 FileHandle.standardOutput.write(Data("baton-gateway listening on :\(port) → \(serverURL.host() ?? "?")\n".utf8))
 FileHandle.standardOutput.write(Data("state file: \(stateFileURL.path)\n".utf8))
 
-// The transport logs every response it sends, uploads included (TBX-5308, S-F26). It used to be
+// The transport logs every response it sends, uploads included. It used to be
 // wrapped around the router, which the streaming upload never reaches — so the one route that
 // writes caller-controlled bytes to disk before checking a token left no trace at all.
 try DefaultTransport(stagingDirectory: uploadStagingDirectory).serve(port: port) { request in

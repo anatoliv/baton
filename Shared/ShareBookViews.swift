@@ -3,7 +3,7 @@ import BatonPlaybackKit
 import BatonShareKit
 import SwiftUI
 
-/// A book as Share… sees it (`specs/book-sharing.md`, Phase 1, TBX-1000000132): its name, and
+/// A book as Share… sees it (`specs/book-sharing.md`, Phase 1): its name, and
 /// the chapters whose audio is on this device, in order. Built by each app from its own shelf
 /// (`BookShelf.Book` on the Mac, `MobileBookShelf.Book` on the iPhone).
 struct BookShareDraft: Identifiable, Equatable {
@@ -83,7 +83,7 @@ struct BookShareDraft: Identifiable, Equatable {
 /// disclosure, with what to send. A run of chapters goes as Phase 1 did: one chapter a song link,
 /// two to twelve a mixtape, within the limits the service advertises (`ShareBookPlan`). When the
 /// service advertises `books: 1`, the whole book can also go as one `/b/` link, and is chosen
-/// first when it does not fit a Phase 1 link (Phase 2, TBX-1000000132).
+/// first when it does not fit a Phase 1 link (Phase 2).
 struct ShareBookSheet: View {
     let book: BookShareDraft
 

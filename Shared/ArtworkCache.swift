@@ -96,9 +96,9 @@ public final class ArtworkCache {
     /// client per request, so 645 cover-art entries in the owner's real cache carried 645
     /// distinct salts for 456 distinct covers. The disk tier could never serve a repeat, and
     /// in exchange it wrote a username and 645 `md5(password + salt)` tokens into
-    /// `Cache.db`'s `request_key` column in cleartext. Measurements are on TBX-5349.
+    /// `Cache.db`'s `request_key` column in cleartext. Measurements are on an internal task.
     ///
-    /// TBX-5359 has since moved the salt to a per-server cache, so signed URLs do repeat now.
+    /// An internal task has since moved the salt to a per-server cache, so signed URLs do repeat now.
     /// That does not give this back to `URLCache.shared`: the key would still be a cleartext
     /// username and a password-derived token written to disk, and it would still miss on every
     /// password change. The auth-stripped key below holds no credential and survives one.
@@ -196,7 +196,7 @@ public final class ArtworkCache {
             guard outcome == .loaded else { return (nil, outcome) }
             // The cache writes the response's own URL to disk beside the key, so the stored
             // copy is rebuilt on the stripped URL; the server's response named the signed one
-            // (TBX-1000000480 C3-2). Set-Cookie goes too: it is a credential, not the picture.
+            // Set-Cookie goes too: it is a credential, not the picture.
             var storedResponse = response
             if let http = response as? HTTPURLResponse, let keyURL = keyRequest.url {
                 let headers = (http.allHeaderFields as? [String: String] ?? [:])

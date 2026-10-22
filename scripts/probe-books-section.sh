@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Books section walk (TBX-11018), on a probe instance, never the owner's Baton:
+# The Books section walk, on a probe instance, never the owner's Baton:
 #
 #   scripts/probe-books-section.sh <Baton.app> <evidence-dir>
 #
@@ -10,7 +10,7 @@
 #   B. Books: the book's row with its author and length, and no reading
 #   C. the book open: its chapters, Play, Read Along, More, and its storage
 #   D. chapter 2 played from its row's menu: the chapter row has the bars, the accent title and
-#      the tint (TBX-10990), the book's cover the bars alone
+#      the tint, the book's cover the bars alone
 #   E. paused: the tint stays on the chapter row, the bars go
 #   F. back in the list while chapter 2 plays: the book's row has the bars
 #

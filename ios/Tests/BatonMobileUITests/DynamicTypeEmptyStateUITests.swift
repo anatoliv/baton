@@ -23,7 +23,7 @@ final class DynamicTypeEmptyStateUITests: XCTestCase {
         // The bundled demo library, not demo.navidrome.org. Layout at a text size has
         // nothing to do with the network, so it should not depend on one — the same
         // reasoning DynamicTypePlayerUITests already records.
-        // TBX-5336: launchEnvironment, not launchArguments, for Baton's own overrides — see
+        // launchEnvironment, not launchArguments, for Baton's own overrides — see
         // CLAUDE.md's UI-test section. `-UIPreferredContentSizeCategoryName` stays a launch
         // argument: UIKit itself reads it, so it is unaffected by the flake this fixes.
         app.launchEnvironment["baton.resetSession"] = "1"
@@ -191,7 +191,7 @@ final class DynamicTypeEmptyStateUITests: XCTestCase {
 
     /// Later's overflow menu (`Menu { Button("Clear All", ...) } label: { Image(systemName:
     /// "ellipsis.circle") }` in `LaterView.swift`) was one of the 55 icon-only controls with
-    /// no VoiceOver label outside the  lint's old nine-file scope. A
+    /// no VoiceOver label outside the lint's old nine-file scope. A
     /// screenshot cannot show a missing accessibility label, but a runtime walk that reaches
     /// the screen at AX5 is still worth more than reading the diff — this repo's own habit
     /// (`CLAUDE.md`, "verify against the running app, not the code").

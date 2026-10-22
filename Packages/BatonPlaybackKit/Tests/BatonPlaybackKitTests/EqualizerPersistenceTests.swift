@@ -2,7 +2,7 @@ import BatonSubsonicKit
 import XCTest
 @testable import BatonPlaybackKit
 
-/// The equalizer curve moving onto `VersionedStore` (S-F14 / TBX-5354).
+/// The equalizer curve moving onto `VersionedStore` (S-F14).
 ///
 /// The curve is not derived from anything: bands are dragged one at a time and a lost one
 /// cannot be recomputed. It lived as a bare `[EQBand]` blob under one `UserDefaults` key,

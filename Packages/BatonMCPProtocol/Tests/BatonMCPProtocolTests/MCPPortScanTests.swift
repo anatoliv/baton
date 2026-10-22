@@ -2,7 +2,7 @@ import BatonSubsonicKit
 import XCTest
 @testable import BatonMCPProtocol
 
-/// TBX-7306: the port scan is decided without a socket. These pin the order, the sibling skip
+/// The port scan is decided without a socket. These pin the order, the sibling skip
 /// and the notice text; the app target's MCPPortSurfacingTests cover the real bind.
 final class MCPPortScanTests: XCTestCase {
     func testCandidatesStartAtThePreferredPortAndWalkUpward() {

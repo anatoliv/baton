@@ -651,7 +651,7 @@ final class ClippingReconcileTests: XCTestCase {
 }
 
 
-/// The clipping files moving onto `VersionedStore` (S-F14 / TBX-5354).
+/// The clipping files moving onto `VersionedStore` (S-F14).
 ///
 /// A sidecar is the only record of what a clipping is, and a tombstone list that reads as
 /// empty brings back every clipping this device deleted. Neither can be re-derived from
@@ -687,7 +687,7 @@ final class ClippingPersistenceTests: XCTestCase {
         return store
     }
 
-    // MARK: - The move onto VersionedStore (S-F14 / TBX-5354)
+    // MARK: - The move onto VersionedStore (S-F14)
 
     /// Exactly what the pre-`VersionedStore` code wrote for both files: raw JSON, no envelope.
     ///
@@ -886,7 +886,7 @@ final class ClippingStoreBookTests: XCTestCase {
     }
 
     /// A sidecar written by this build is stamped v3 (v2 added the chapter fields, v3 the voice,
-    /// TBX-10989), so a downgraded build reads it but refuses to write over it: an old build's
+    /// An internal task), so a downgraded build reads it but refuses to write over it: an old build's
     /// rename would otherwise drop the fields it does not know about.
     func testSidecarsAreWrittenAtVersionThreeAndAVersionOneEnvelopeStillReads() throws {
         let item = try store.adopt(try tone(seconds: 1), title: "The Mending Apparatus", chapter: chapter)

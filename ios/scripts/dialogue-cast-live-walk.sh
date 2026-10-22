@@ -1,6 +1,6 @@
 #!/bin/bash
 # Voice the dialogue on the phone against a throwaway loopback gateway and a real voice server
-# (TBX-11141), on a simulator the caller owns:
+# on a simulator the caller owns:
 #
 #   SIM_UDID=<udid> KOKORO_UPSTREAM=http://<kokoro>:8880 ios/scripts/dialogue-cast-live-walk.sh <evidence-dir>
 #

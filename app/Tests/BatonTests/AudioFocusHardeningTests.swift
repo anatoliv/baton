@@ -277,7 +277,7 @@ final class AudioFocusHardeningTests: XCTestCase {
         XCTAssertEqual(c.volumePercent, 80)
     }
 
-    /// : over the REAL socket (accept loop + per-connection threads), an idle client that
+    /// Over the REAL socket (accept loop + per-connection threads), an idle client that
     /// connects and sends nothing must not starve a real client. Uses an expectation
     /// so the main run loop keeps pumping — the socket's dispatch hops to the main actor.
     func testRealSocketServesDespiteAnIdleClient() {

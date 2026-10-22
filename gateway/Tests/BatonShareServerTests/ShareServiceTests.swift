@@ -286,7 +286,7 @@ final class ShareServiceTests: XCTestCase {
     }
 
     /// The preview card is public, but a cache may not keep answering with it once the share is
-    /// revoked: every use revalidates, and the revoked share answers 410 (TBX-1000000507 E-13).
+    /// revoked: every use revalidates, and the revoked share answers 410.
     func testThePreviewCardRevalidatesSoARevokedShareStopsServingIt() throws {
         let sealed = try ShareCrypto.seal(Data(count: 5000), key: ShareCrypto.newKey(), purpose: .audio)
         let created = try decode(CreateShareResponse.self, request("POST", "/v1/share/shares",
@@ -475,7 +475,7 @@ final class ShareServiceTests: XCTestCase {
     }
 
     /// Each counted play allows 1.5x the file in transfer; a continuation past what is left counts as
-    /// another play (owner decision 2026-10-21, TBX-1000000494 item 3). Before, one counted fetch
+    /// another play (owner decision 2026-10-21 item 3). Before, one counted fetch
     /// could be followed by any number of free continuations.
     func testContinuationsPastTheTransferAllowanceCountAsAnotherPlay() throws {
         let made = try makeReadyShare(cap: 2)
@@ -531,7 +531,7 @@ final class ShareServiceTests: XCTestCase {
     }
 
     /// Before staging is reserved, an upload head is checked for who is asking, and refused with the
-    /// handler's own answer when the credential owns no such share (TBX-1000000496 D-15).
+    /// handler's own answer when the credential owns no such share.
     func testAnUploadHeadIsRefusedBeforeStagingUnlessItsSharerOwnsTheShare() throws {
         let sealed = try ShareCrypto.seal(Data(count: 5000), key: ShareCrypto.newKey(), purpose: .audio)
         let pending = try decode(CreateShareResponse.self,
@@ -571,7 +571,7 @@ final class ShareServiceTests: XCTestCase {
 
     /// The pre-staging check refuses what the handler would refuse anyway, with the handler's answer:
     /// a share that is no longer pending or has expired, and a declared length the share did not
-    /// declare. Admissions then count against the in-flight caps until released (TBX-1000000496
+    /// declare. Admissions then count against the in-flight caps until released (an internal task
     /// D-15 review).
     func testThePreStagingCheckRefusesStateAndSizeAndCapsUploadsInFlight() throws {
         let sealed = try ShareCrypto.seal(Data(count: 5000), key: ShareCrypto.newKey(), purpose: .audio)
@@ -824,7 +824,7 @@ final class ShareServiceTests: XCTestCase {
     }
 
     /// IPv6 visitors are grouped by their /64, IPv4 by address as before, for every per-network limit:
-    /// Cloudflare passes the full IPv6 address, and an ordinary /64 is 2^64 of them (TBX-1000000496
+    /// Cloudflare passes the full IPv6 address, and an ordinary /64 is 2^64 of them (an internal task
     /// E-9, infra review step A2).
     func testIPv6AddressesInOneSlash64ShareAPerNetworkLimitAndTwoSlash64sDoNot() throws {
         var limits = ShareLimits()
@@ -832,7 +832,7 @@ final class ShareServiceTests: XCTestCase {
         service = try makeService(limits: limits)
         let sealed = try ShareCrypto.seal(Data(count: 1000), key: ShareCrypto.newKey(), purpose: .audio)
         func create(_ ip: String) -> ShareResponse {
-            request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret, headers: ["cf-connecting-ip": ip])
+            request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret, ip: ip)
         }
         XCTAssertEqual(create("2001:db8:1:2::1").status, 201)
         XCTAssertEqual(code(create("2001:db8:1:2:ffff:ffff:ffff:fffe")), "rate_limited", "same /64, another address")
@@ -842,13 +842,41 @@ final class ShareServiceTests: XCTestCase {
         XCTAssertEqual(create("203.0.113.11").status, 201)
         XCTAssertEqual(code(create("::ffff:203.0.113.11")), "rate_limited", "an IPv4-mapped address is its IPv4 address")
 
-        XCTAssertEqual(ShareRequester(headers: ["cf-connecting-ip": "2001:db8:1:2:3:4:5:6"]).network, "2001:db8:1:2::/64")
-        XCTAssertEqual(ShareRequester(headers: ["cf-connecting-ip": "fe80::1%en0"]).network, "fe80::/64")
+        XCTAssertEqual(ShareRequester(headers: ["x-real-ip": "2001:db8:1:2:3:4:5:6"]).network, "2001:db8:1:2::/64")
+        XCTAssertEqual(ShareRequester(headers: ["x-real-ip": "fe80::1%en0"]).network, "fe80::/64")
         XCTAssertEqual(ShareRequester(headers: ["x-real-ip": "198.51.100.4"]).network, "198.51.100.4")
-        XCTAssertEqual(ShareRequester(headers: ["cf-connecting-ip": "not an address"]).network, "not an address",
+        XCTAssertEqual(ShareRequester(headers: ["x-real-ip": "not an address"]).network, "not an address",
                        "an unparsable value falls back to itself")
-        XCTAssertEqual(ShareRequester(headers: ["cf-connecting-ip": "2001:db8:1:2:3:4:5:6"]).address, "2001:db8:1:2:3:4:5:6",
+        XCTAssertEqual(ShareRequester(headers: ["x-real-ip": "2001:db8:1:2:3:4:5:6"]).address, "2001:db8:1:2:3:4:5:6",
                        "the visitor hash keeps the full address: a visitor is a person, not a network")
+    }
+
+    /// baton_web hands the service one address header, X-Real-IP, which it believes only from
+    /// proxy_net, where NPM sets it. A CF-Connecting-IP or X-Forwarded-For that reaches the
+    /// service did not come that way, so it is not the client's address and cannot rotate a limit.
+    func testTheClientAddressIsXRealIPAndNoOtherHeader() throws {
+        let all = ["x-real-ip": "198.51.100.7", "cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "192.0.2.1, 192.0.2.2"]
+        XCTAssertEqual(ShareRequester(headers: all).address, "198.51.100.7")
+        XCTAssertEqual(ShareRequester(headers: ["cf-connecting-ip": "203.0.113.9"]).address, "unknown")
+        XCTAssertEqual(ShareRequester(headers: ["x-forwarded-for": "203.0.113.9"]).address, "unknown")
+        XCTAssertTrue(ShareRequester(headers: ["cf-connecting-ip": "203.0.113.9"]).viaProxy,
+                      "any forwarding header still shuts the admin route")
+        XCTAssertTrue(ShareRequester(headers: ["x-forwarded-for": "203.0.113.9"]).viaProxy)
+        XCTAssertFalse(ShareRequester(headers: [:]).viaProxy)
+
+        var limits = ShareLimits()
+        limits.createsPerNetworkPerDay = 1
+        service = try makeService(limits: limits)
+        let sealed = try ShareCrypto.seal(Data(count: 1000), key: ShareCrypto.newKey(), purpose: .audio)
+        func create(_ ip: String, _ forged: [String: String] = [:]) -> ShareResponse {
+            request("POST", "/v1/share/shares", json: createBody(sealed), secret: secret, headers: forged, ip: ip)
+        }
+        XCTAssertEqual(create("198.51.100.7", ["cf-connecting-ip": "203.0.113.1"]).status, 201)
+        XCTAssertEqual(code(create("198.51.100.7", ["cf-connecting-ip": "203.0.113.2"])), "rate_limited",
+                       "a fresh CF-Connecting-IP is not a fresh network")
+        XCTAssertEqual(code(create("198.51.100.7", ["x-forwarded-for": "203.0.113.3"])), "rate_limited",
+                       "nor is a fresh X-Forwarded-For")
+        XCTAssertEqual(create("198.51.100.8").status, 201, "another X-Real-IP is another network")
     }
 
     // MARK: - Sweeper

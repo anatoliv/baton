@@ -1,7 +1,7 @@
 import Foundation
 
 /// Where each chunk of a chapter sits in its audio (`specs/document-clippings.md`, *Expansions* 6,
-/// read-along; TBX-10960).
+/// read-along).
 ///
 /// The renderer joins a chapter from one clip per `SpeechSegment`, so it knows exactly where each
 /// one starts and ends; it writes that down beside the chapter as `chapter-N.timing.json`. A chunk
@@ -111,7 +111,7 @@ public struct ReadAlong: Sendable, Equatable {
         // A sentence counts as started a few milliseconds early: a tap seeks to its start, and
         // the player keeps time in 1/600 s, so it lands up to 1 ms before it and lit the
         // sentence before until the audio started again, a third of a second or more
-        //. Five milliseconds is far below anything a listener hears.
+        // Five milliseconds is far below anything a listener hears.
         let time = time + Self.startTolerance
         if time < first { return 0 }
         // Binary search for the last sentence whose start <= time.

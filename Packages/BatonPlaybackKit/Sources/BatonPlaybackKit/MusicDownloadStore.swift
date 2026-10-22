@@ -65,7 +65,7 @@ public final class MusicDownloadStore {
     /// download. Legacy downloads with no entry fall back to the parsed filename.
     @ObservationIgnored private var meta: [String: DownloadMeta] = [:]
     /// URLSession used for downloads. Injectable so tests can stub HTTP responses
-    ///. Defaults to `.shared`.
+    /// Defaults to `.shared`.
     @ObservationIgnored public var urlSession: URLSession = .shared
     /// Supplies each song id's last-played time for LRU storage-cap eviction. Wired by MusicModel
     /// from play history; nil ⇒ never-played ordering (cap still enforced by size).
@@ -215,7 +215,7 @@ public final class MusicDownloadStore {
             taken: [:], ext: ext
         )
         // A file already there under that name that is not this song's download is the user's
-        // own (the folder can be their library, ), so it counts as taken by another owner.
+        // own (the folder can be their library), so it counts as taken by another owner.
         if manifest[song.id]?.caseInsensitiveCompare(plain) != .orderedSame,
            FileManager.default.fileExists(atPath: directory.appendingPathComponent(plain).path) {
             taken[""] = plain
@@ -457,7 +457,7 @@ public final class MusicDownloadStore {
     /// the background-session delegate path (which finishes downloads the async caller
     /// never sees — including after an app relaunch).
     ///
-    /// : URLSession does NOT throw on 4xx/5xx; without validation a 404 or a
+    /// URLSession does NOT throw on 4xx/5xx; without validation a 404 or a
     /// reverse-proxy login page would be saved as a completed `.mp3` and then preferred
     /// over streaming forever. The MPL integrity checks also reject error-as-200
     /// envelopes and truncated transcodes, and the file is named from its magic bytes.

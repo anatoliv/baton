@@ -30,7 +30,7 @@ struct BatonSpeechPane: View {
         var voice: String
     }
     @State private var transcriptionEnabled = SpeechConfig.transcriptionEnabled
-    // Document clippings (specs/document-clippings.md): on by default since TBX-10801, and this
+    // Document clippings (specs/document-clippings.md): on by default since an internal task, and this
     // is the one place it is turned off. The flag is this Mac's own, not a synced setting.
     @State private var documentsEnabled = DocumentLibrary.isEnabled()
     @State private var whisperHost = SpeechConfig.whisperBaseURL
@@ -84,7 +84,7 @@ struct BatonSpeechPane: View {
             // machine.
             documentsSection
             if documentsEnabled {
-                // TBX-10909: which engine reads a book made here (built on TBX-10854's
+                // Which engine reads a book made here (built on an internal task
                 // download), with the Services probe's answers for its server lines.
                 BookVoiceEngineSection(kokoro: loadState[.kokoro] ?? .unknown,
                                        chatterbox: loadState[.chatterbox] ?? .unknown)

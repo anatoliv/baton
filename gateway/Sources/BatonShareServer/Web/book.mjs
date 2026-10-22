@@ -1,4 +1,4 @@
-// The /b/ page (specs/book-sharing.md, "The /b/ page"; TBX-1000000132), built from the mixtape page.
+// The /b/ page (specs/book-sharing.md, "The /b/ page"), built from the mixtape page.
 // The key comes from the fragment and goes nowhere else: no request, no storage. The details are
 // fetched and the manifest authenticated before anything is shown. Starting to listen is always an
 // explicit choice, because it spends one of the link's listeners; the session then lasts as long as
@@ -211,7 +211,7 @@ async function admit() {
   const value = await json("/sessions", { method: "POST" }, false, 4096);
   const deadline = Date.parse(value?.expiresAt);
   // A session lasts as long as the link, which the sender can extend while this page is open, so a
-  // deadline later than the one the page loaded with is the link's new end (TBX-1000000495). No link
+  // deadline later than the one the page loaded with is the link's new end. No link
   // runs past 30 days from now; a day of slack covers a viewer whose clock runs behind the server's.
   if (!object(value) || !canonical(value.token, 32) || !Number.isFinite(deadline) || deadline <= Date.now() || deadline > Date.now() + 2678400000 ||
       !Number.isSafeInteger(value.remainingBytes) || value.remainingBytes < 0 ||

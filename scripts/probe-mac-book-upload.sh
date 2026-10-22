@@ -1,5 +1,5 @@
 #!/bin/bash
-# A book made on this Mac reaches the Baton server with every chapter (TBX-11092), on a probe
+# A book made on this Mac reaches the Baton server with every chapter, on a probe
 # instance against a throwaway gateway, never the owner's Baton and never the real home server:
 #
 #   GATEWAY_URL=http://127.0.0.1:<port> GATEWAY_TOKEN_FILE=<0600 file> GATEWAY_BOOKS=<its books dir> \

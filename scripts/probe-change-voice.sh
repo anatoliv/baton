@@ -1,5 +1,5 @@
 #!/bin/bash
-# Change Voice… on the Mac (TBX-10989), on a probe instance, never the owner's Baton:
+# Change Voice… on the Mac, on a probe instance, never the owner's Baton:
 #
 #   scripts/probe-change-voice.sh <Baton.app> <evidence-dir> <built-in-model-dir>
 #

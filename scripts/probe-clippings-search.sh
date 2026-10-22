@@ -1,5 +1,5 @@
 #!/bin/bash
-# The Clippings search walk (M8.9, TBX-10870), on a probe instance, never the owner's Baton:
+# The Clippings search walk (M8.9), on a probe instance, never the owner's Baton:
 #
 #   scripts/probe-clippings-search.sh <Baton.app> <evidence-dir>
 #

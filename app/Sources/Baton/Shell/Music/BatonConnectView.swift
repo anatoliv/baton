@@ -113,7 +113,7 @@ struct BatonConnectSheet: View {
         focus = nil
     }
 
-    /// Saves a verified connection (TBX-1000000504, A-22).
+    /// Saves a verified connection.
     ///
     /// The sheet opens filled in with the active server, so reconnecting is "type the secret,
     /// press Connect". Adding every time listed the server twice, each copy with its own Keychain

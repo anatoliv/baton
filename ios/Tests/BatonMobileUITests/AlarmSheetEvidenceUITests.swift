@@ -1,7 +1,7 @@
 import XCTest
 
 /// Screenshots of the quick Alarm and Timer sheet in whatever appearance the simulator is in
-///: the Timer tab from a song's menu, the What to Play picker, the Alarm tab with
+/// the Timer tab from a song's menu, the What to Play picker, the Alarm tab with
 /// its list, the pill above the mini player, and the ringing screen over Home.
 ///
 /// Evidence, not a gate: it runs only with `BATON_ALARM_EVIDENCE=1` in the test runner's

@@ -5,7 +5,7 @@ import BatonSubsonicKit
 import XCTest
 @testable import Baton
 
-/// TBX-5324, second round. Building `RemoteControlService` at the composition root was
+/// An internal task, second round. Building `RemoteControlService` at the composition root was
 /// necessary and not sufficient. The scenes wrote `.environment(appDelegate.remote)` in the
 /// scene builder, and a `Window` scene's content is a *value* built while `BatonApp.body` is
 /// evaluated, which happens once, before AppKit calls `applicationDidFinishLaunching`. The

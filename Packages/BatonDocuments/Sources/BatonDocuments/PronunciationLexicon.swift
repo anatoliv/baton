@@ -41,7 +41,7 @@ public struct PronunciationLexicon: Codable, Sendable, Equatable {
     /// The entries a renderer may send, the same on this Mac and on the home server since both
     /// mark text through `apply(to:)`. Dropped: phonemes Kokoro cannot read; with `asked`, a word
     /// the model was not asked about; and a model's entry whose phonemes are identical to another
-    /// entry's for a different word. On the TBX-10886 walk Apple's on-device model, asked about
+    /// entry's for a different word. On the walk Apple's on-device model, asked about
     /// "Netherfield" and "neighbourhood" together, gave both `ˈnɛθəˌfiːld`, and the chapter said
     /// "Netherfield" for "neighbourhood". Which of two such proposals is the copy
     /// cannot be told, so every model entry sharing the sound goes, and the words are read as

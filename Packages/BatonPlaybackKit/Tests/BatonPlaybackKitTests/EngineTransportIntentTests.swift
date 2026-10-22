@@ -43,7 +43,7 @@ final class EngineTransportIntentTests: XCTestCase {
         let deadline = started.addingTimeInterval(timeout)
         // The longest the main actor went between polls meant 50 ms apart. Near 50 ms with a
         // load still pending means the main actor was free and the load was stuck elsewhere
-        // (the cooperative pool, as in TBX-7480); seconds means the main actor itself starved.
+        // (the cooperative pool, as in an internal task); seconds means the main actor itself starved.
         var lastPoll = started
         var longestGap: TimeInterval = 0
         while engine.state != .playing {
@@ -184,7 +184,7 @@ final class EngineTransportIntentTests: XCTestCase {
     }
 
     /// A pause made while the engine waits to retry a failed stream holds when the retry runs
-    /// (TBX-1000000480 C1-7). The retry is the engine's own load, not a new intent, and it
+    /// The retry is the engine's own load, not a new intent, and it
     /// used to clear the pause and start the audio while the host showed Paused.
     func testAPauseDuringTheRetryBackoffHoldsWhenTheRetryRuns() async throws {
         let wav = EngineTestSignals.sineWAV(frequency: 440, seconds: 30)

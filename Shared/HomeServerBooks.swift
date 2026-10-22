@@ -40,12 +40,12 @@ final class HomeServerBooks {
         /// "Chapter 1 is ready" has been said for this book, or needed no saying: its
         /// first chapter came down with the app in front, or came back by Download Again, Render
         /// Again or a corrected pronunciation. Written only where `firstChapterArrived` is set (the
-        /// phone); absent on the Mac and in files written before TBX-10982.
+        /// phone); absent on the Mac and in files written before an internal task.
         var firstChapterAnnounced: Bool? = nil
         /// Another device sent this book and this one adopted it from the home server's listing
-        ///: the row says "Made on the home server". Nil for a book sent from here.
+        /// the row says "Made on the home server". Nil for a book sent from here.
         var adopted: Bool? = nil
-        /// The adopted book was made on a Mac and uploaded whole (TBX-11017, TBX-11092), so the
+        /// The adopted book was made on a Mac and uploaded whole, so the
         /// row says "Made on your Mac" even before the home server answers. Nil otherwise.
         var madeOnMac: Bool? = nil
 
@@ -102,7 +102,7 @@ final class HomeServerBooks {
     @ObservationIgnored private var watcher: Task<Void, Never>?
     /// What the running watch tells after each round, kept so it can restart at another pace.
     @ObservationIgnored private var watching: (@MainActor () -> Void)?
-    /// How often the watch asks while the app is in the background (the phone, TBX-10982).
+    /// How often the watch asks while the app is in the background (the phone).
     @ObservationIgnored private let backgroundPollInterval: Duration
     /// The app is not in front: the watch asks every `backgroundPollInterval` instead.
     @ObservationIgnored private var inBackground = false
@@ -400,7 +400,7 @@ final class HomeServerBooks {
     }
 
     /// Send a changed version of a book to the home server under its own id (a corrected
-    /// pronunciation, TBX-10964). The home server makes the whole book again, every chunk
+    /// pronunciation). The home server makes the whole book again, every chunk
     /// whose words did not change straight from its chunk cache, and this device collects
     /// only the chapters the caller takes out of Clippings: the others are already here. The
     /// record keeps its document, its date and the chapters removed here on purpose; the old
@@ -418,7 +418,7 @@ final class HomeServerBooks {
         return summary.id
     }
 
-    /// Make the whole book again in another narrator's voice (Change Voice, TBX-10989), through
+    /// Make the whole book again in another narrator's voice (Change Voice), through
     /// `resubmit`: the home server makes it under the job id the new voice gives it, every chunk
     /// a new one, and the record follows that id, keeping its document (so the place in the book
     /// and "finished" stay), its pronunciations and its cast. The chapters here keep playing in
@@ -469,7 +469,7 @@ final class HomeServerBooks {
         voiceChanges.abandon(documentID)
     }
 
-    /// The voices the home server offers (`GET /v1/voices`, TBX-10962), or nil when it cannot
+    /// The voices the home server offers (`GET /v1/voices`), or nil when it cannot
     /// be asked or is older than that route.
     func voices() async -> [String]? {
         guard let client = gateway(), let list = try? await client.voices() else { return nil }
@@ -730,7 +730,7 @@ final class HomeServerBooks {
         watching = nil
     }
 
-    /// The app left the foreground (the phone, TBX-10982): the watch keeps going, once a minute
+    /// The app left the foreground (the phone): the watch keeps going, once a minute
     /// instead of every few seconds. It only runs while something keeps the process alive in the
     /// background, such as music playing; otherwise iOS suspends the app and the background
     /// refresh takes over. Alive, a status request a minute is a small cost in battery and radio
@@ -769,7 +769,7 @@ final class HomeServerBooks {
 
     /// Delete a job on the home server, remembered first so an absent home server is asked
     /// again on the next refresh. Also the Mac's way to delete a book it sent there itself
-    ///, which has no record here.
+    /// which has no record here.
     func cancelRemote(jobID: String) async {
         var pending = pendingDeleteIDs
         if !pending.contains(jobID) {
@@ -820,8 +820,8 @@ final class HomeServerBooks {
 ///
 /// When the caller knows the voices the engine that will render offers (`available`: the Kokoro
 /// host's list, or the built-in voices), an English book gets Heart, or Emma when it declared
-/// British English, if that voice is among them (`VoiceCatalogue.narratorDefault`, TBX-10916).
-/// The phone passes the home server's list (`GET /v1/voices`, TBX-10962); without a list (a
+/// British English, if that voice is among them (`VoiceCatalogue.narratorDefault`).
+/// The phone passes the home server's list (`GET /v1/voices`); without a list (a
 /// gateway from before that route) the configured default stands, so a book is never sent to a
 /// voice nobody checked is there.
 enum DocumentVoices {
@@ -1130,7 +1130,7 @@ final class BookCleanup {
     }
 
     /// Told a book's document id once a deleted book is gone for good (purged now, or its week
-    /// over), so what else this device keeps for it (its cover, TBX-11064) can go too.
+    /// over), so what else this device keeps for it (its cover) can go too.
     @ObservationIgnored var purged: ((String) -> Void)?
 
     /// Delete now what would otherwise wait out its week.
@@ -1231,7 +1231,7 @@ final class BookVoiceChanges {
         /// The voices the book had, which Stop goes back to.
         var previousVoices: VoicePlan
         /// The whole book it was, when the change gave it a cast, edited one or took one away
-        ///: who speaks each line is in its words, not its voices. Nil when only the
+        /// who speaks each line is in its words, not its voices. Nil when only the
         /// narrator changed, which `previousVoices` puts back.
         var previousBook: PreparedBook? = nil
         /// The job making it in the new voice.

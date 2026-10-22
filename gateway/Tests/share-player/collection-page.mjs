@@ -1,5 +1,5 @@
 // The album and playlist page (/b/ with a collection kind) through the same service and nginx as
-// e2e.mjs (specs/collection-sharing.md, "The page"; TBX-1000000485). Three short AAC songs are made
+// e2e.mjs (specs/collection-sharing.md, "The page"). Three short AAC songs are made
 // the way the apps seal music (ffmpeg, 128 kbps stereo, in an .m4a) and a tiny JPEG cover, then sealed
 // under the book keys as an album (with the cover and track numbers) and as a playlist (each song's
 // artist and album, no cover), created, uploaded and finalized through the real service routes. A
@@ -463,7 +463,7 @@ export async function verifyCollectionPage({ browser, base, api, evidence, dataD
     await wrapPage.close();
     passed("choose a song first, then repeat all runs from the last song on into the first");
 
-    // ---------- A link extended while its page is open (TBX-1000000495 D-11) ----------
+    // ---------- A link extended while its page is open ----------
     const extending = await mint(playlistSealed, { listenerCap: 2 });
     const open = await phone.newPage();
     await open.goto(extending.link);

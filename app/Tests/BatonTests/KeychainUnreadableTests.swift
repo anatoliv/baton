@@ -2,7 +2,7 @@ import XCTest
 import BatonSubsonicKit
 @testable import Baton
 
-/// TBX-5268: "the Keychain will not answer" and "no password was ever saved" are different
+/// "the Keychain will not answer" and "no password was ever saved" are different
 /// states, and the app used to have no way to tell them apart — every call site turned both
 /// into `""`. These cover the seam that separates them, and the data-loss path found while
 /// building it.

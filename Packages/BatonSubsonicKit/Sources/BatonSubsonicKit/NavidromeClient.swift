@@ -73,7 +73,7 @@ public struct NavidromeClient: Sendable {
     /// `NavidromeSaltCache`, so every client built for the same server and password signs
     /// identically and a repeated URL for the same resource is byte-identical.
     ///
-    /// This used to be minted per client, which was documented as "stable per client ( /
+    /// This used to be minted per client, which was documented as "stable per client (/
     /// NET-06)" and read as if it were stable per server. It is not: nothing here holds a
     /// client, every call site builds one per request, and the owner's live cache held 645
     /// cover-art entries carrying 645 distinct salts for 456 distinct covers.

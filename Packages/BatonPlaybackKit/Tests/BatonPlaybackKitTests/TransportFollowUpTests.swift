@@ -2,8 +2,8 @@ import XCTest
 import BatonSubsonicModels
 @testable import BatonPlaybackKit
 
-/// Review follow-ups on the host transport (TBX-1000000506, findings C1-8, C1-11, C1-17,
-/// C1-18 and C1-23 of docs/reviews/2026-10-21-full-code-review.md). Each test drives real
+/// Review follow-ups on the host transport (findings C1-8, C1-11, C1-17,
+/// C1-18 and C1-23 of the 2026-10-21 full code review). Each test drives real
 /// local files through the AVPlayer deck.
 @MainActor
 final class TransportFollowUpTests: XCTestCase {

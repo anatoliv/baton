@@ -87,7 +87,7 @@ struct NowPlayingSourceGlyph: View {
 }
 
 /// The Play item of a collection's context menu: Play, or Pause / Resume while the
-/// collection is the one in the player (TBX-11066, the rule is `CollectionPlayState`).
+/// collection is the one in the player.
 /// `start` runs only when it is not; it is usually the collection's `*Actions.play`, which
 /// toggles a loaded collection itself, so a menu read a moment before playback changed
 /// still does the right thing.
@@ -431,7 +431,7 @@ enum AlbumActions {
 }
 
 /// What each "Share…" on an album, a playlist or a song selection hands the composer
-///. The songs go in display order when the view has them, else nil and the
+/// The songs go in display order when the view has them, else nil and the
 /// sheet loads the album or playlist itself.
 enum CollectionShareEntry {
     static let symbol = "square.and.arrow.up"

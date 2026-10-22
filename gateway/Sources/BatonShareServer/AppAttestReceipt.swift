@@ -109,7 +109,10 @@ extension AppAttestVerifier {
     static func receiptDate(_ value: String) -> Date? {
         // Receipts use UTC ISO8601 text. Foundation also accepts prefixes/trailing
         // characters, which would make an otherwise signed malformed value ambiguous.
-        guard value.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$"#, options: .regularExpression) != nil else { return nil }
+        // `\z`, not `$`: ICU's `$` also matches before a final line terminator, and on Linux
+        // corelibs' ISO8601DateFormatter then accepts the trailing newline that Apple's refuses
+        //
+        guard value.range(of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z\z"#, options: .regularExpression) != nil else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         guard let date = formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value) else { return nil }

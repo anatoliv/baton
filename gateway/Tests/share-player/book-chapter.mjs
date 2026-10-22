@@ -1,4 +1,4 @@
-// A book's chapters through the real players (specs/book-sharing.md, TBX-1000000132).
+// A book's chapters through the real players (specs/book-sharing.md).
 //
 // A chapter is AAC in MP4, not the MP3 a song is, and Safari and Firefox go by a Blob's label.
 // This walk shares one chapter as a song link and two as a mixtape, the way the apps do, then

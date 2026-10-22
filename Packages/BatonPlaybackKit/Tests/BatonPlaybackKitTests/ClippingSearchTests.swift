@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import BatonPlaybackKit
 
-/// The Clippings search index (M8.9, TBX-10870).
+/// The Clippings search index (M8.9).
 ///
 /// Three things are worth proving. The index answers what it is asked (add, change, remove, case,
 /// accents, substrings anywhere in a word). It never loses a result the old filter gave: the old

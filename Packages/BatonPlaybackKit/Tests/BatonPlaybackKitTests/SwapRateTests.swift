@@ -6,7 +6,7 @@ import BatonSubsonicModels
 /// Every way the deck makes a different player (or item) the one being heard keeps the spoken
 /// speed and the speech-friendly time-pitch algorithm.
 ///
-/// Found while checking TBX-10987 on the simulator: after Next on a book at 1.5×, the next
+/// Found while checking an internal task on the simulator: after Next on a book at 1.5×, the next
 /// chapter ran 0:02 to 0:16 in about 14 s, 1×, while the player said 1.5×. A blend plays the
 /// incoming item on a second `AVQueuePlayer`, which starts at 1×, and promoting it never gave it
 /// the speed. The controller only re-applies the speed when the *target* changes, and chapter to

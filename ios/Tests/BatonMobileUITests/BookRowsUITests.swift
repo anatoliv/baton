@@ -178,7 +178,7 @@ final class BookRowsUITests: XCTestCase {
 
     // MARK: - Resuming where the other device left off
 
-    /// Play on a book with no chapter chosen resumes at the synced position (TBX-10946,
+    /// Play on a book with no chapter chosen resumes at the synced position (
     /// `specs/document-clippings.md`: chapter 2 at 10:00 on the Mac resumes there on the iPhone).
     /// The position is put in the shared ledger at launch through `uitestBookPosition`, where a
     /// `PreferenceSync` merge from the Mac would put it: chapter 2 (index 1), 15 seconds in.
@@ -312,7 +312,7 @@ final class BookRowsUITests: XCTestCase {
         attach("previously-then-playing")
     }
 
-    /// TBX-10966: a phone whose music friend is a cloud model reaches no model of its own. With a
+    /// A phone whose music friend is a cloud model reaches no model of its own. With a
     /// home server from before the book route (404), Hear Recap asks the Mac's question before any
     /// chapter goes to that provider, and Not Now plays the book with nothing sent. Once the home
     /// server answers the route, the recap is written there, from the heard text only.
@@ -493,7 +493,7 @@ final class BookRowsUITests: XCTestCase {
         removeUIInterruptionMonitor(monitor)
     }
 
-    /// Books has its own Library section since TBX-11018; the route is `BooksScreen`.
+    /// Books has its own Library section since an internal task; the route is `BooksScreen`.
     private func openBooks() {
         BooksScreen.open(app)
     }

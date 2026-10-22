@@ -59,7 +59,7 @@ final class NavidromeClientTests: XCTestCase {
         XCTAssertFalse(url.absoluteString.contains("sesame"))
     }
 
-    ///  / NET-06, corrected by TBX-5359: the salt has to be stable per SERVER, not per
+    /// An internal task, corrected by an internal task: the salt has to be stable per SERVER, not per
     /// client. Stable per client bought nothing, because nothing here keeps a client: every
     /// call site builds one per request, and the owner's live cache held 645 cover-art
     /// entries carrying 645 distinct salts for 456 distinct covers. The second half of this
@@ -263,7 +263,7 @@ final class NavidromeClientTests: XCTestCase {
         XCTAssertTrue(url.contains("submission=true"))
     }
 
-    func testScrobbleIncludesStartTime() async throws { //  / SCR-03
+    func testScrobbleIncludesStartTime() async throws {
         NavidromeMockURLProtocol.handler = { req in navidromeOK(#"{"subsonic-response":{"status":"ok"}}"#, req) }
         let client = NavidromeClient(credentials: creds(), session: mockSession())
         try await client.scrobble(id: "s7", submission: true, time: 1_700_000_000_000)
@@ -427,7 +427,7 @@ final class NavidromeClientTests: XCTestCase {
         await assertThrows(client, expected: .http(status: 500))
     }
 
-    func testHTTP401MapsToUnauthorized() async { //  / NET-09 (reverse-proxy auth)
+    func testHTTP401MapsToUnauthorized() async { // An internal task (reverse-proxy auth)
         NavidromeMockURLProtocol.handler = { request in
             (HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: "HTTP/1.1", headerFields: nil)!, Data())
         }
@@ -489,7 +489,7 @@ final class NavidromeClientTests: XCTestCase {
         let ids = (0 ..< 250).map { "s\($0)" }
         try await client.setPlaylistSongsChunked(id: "PL", songIDs: ids, name: "Big", chunkSize: 100)
 
-        // The playlist is read first so a failed later batch can be rolled back (TBX-1000000506
+        // The playlist is read first so a failed later batch can be rolled back (an internal task
         // C-17); the writes that follow are unchanged.
         XCTAssertTrue(captured.first?.path.contains("getPlaylist") ?? false, "the playlist is read before it is rewritten")
         let urls = captured.filter { !$0.path.contains("getPlaylist") }

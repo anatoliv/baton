@@ -4,7 +4,7 @@ import BatonPlaybackKit
 /// The Albums browse tab — a two-column grid over `MusicLibraryStore.albums`, the
 /// iPhone rendering of the Mac app's grid branch. Artwork rides `AsyncImage` +
 /// `URLCache`, which needs cover-art URLs to be byte-identical between renders. They are,
-/// since TBX-5359 keyed the Subsonic salt per server instead of per client. Before that the
+/// since an internal task keyed the Subsonic salt per server instead of per client. Before that the
 /// comment here said the same thing and it was not true.
 struct AlbumsGridView: View {
     let model: MobileModel

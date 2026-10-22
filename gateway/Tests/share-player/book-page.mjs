@@ -1,5 +1,5 @@
 // The whole-book page (/b/) through the same service and nginx as e2e.mjs (specs/book-sharing.md,
-// "The /b/ page"; TBX-1000000132). A synthetic book is made the way the apps make one: three short
+// "The /b/ page"). A synthetic book is made the way the apps make one: three short
 // AAC chapters (ffmpeg, 48 kbps mono, as the book renderer writes them) and read-along text on the
 // first, sealed under baton-book-1 keys, created, uploaded and finalized through the real service
 // routes. Then a real browser authenticates it, starts one listener, plays on from chapter to chapter,
@@ -348,7 +348,7 @@ export async function verifyBookPage({ browser, base, direct, api, evidence, dat
     await blocked.close();
     passed("a stale stored deadline takes the live link's, a 401 session deletes the entry, and blocked storage still plays");
 
-    // ---------- A link extended while its page is open (TBX-1000000495 D-11) ----------
+    // ---------- A link extended while its page is open ----------
     // A book session lasts as long as the link, so after an extension the admission's deadline is
     // later than the one the page loaded with.
     const extending = await mint({ listenerCap: 2 });

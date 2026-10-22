@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# The gate counts every test that ran, not just the ones XCTest reports. (TBX-5236)
+# The gate counts every test that ran, not just the ones XCTest reports.
 #
 # WHY THIS EXISTS. On 2026-09-08 the same iPhone run was two different numbers:
 #
@@ -172,7 +172,7 @@ expect "gateway (swift test) counts both reporters" "$(count_log "$WORK/gateway.
 
 # The gateway's own empty run, planted two ways, because they are two different accidents
 # and both used to print a green "its tests pass" line. `swift test` exits 0 in each.
-# (TBX-5317, D-F6)
+#
 #
 #   a. the target is still there and every test in it was renamed or deleted
 cat >"$WORK/gateway-zero.log" <<'LOG'
@@ -242,7 +242,7 @@ else
 fi
 # And counting it is only half: the count has to be able to fail the gate. Every OTHER
 # stage routed a zero through `empty_run_is_failure`; the gateway printed green over it,
-# on the component the comment above it calls load-bearing for phone sync. (TBX-5317, D-F6)
+# on the component the comment above it calls load-bearing for phone sync.
 if grep -q '\[ "${gateway_n:-0}" -eq 0 \] && empty_run_is_failure' scripts/test.sh; then
   ok "wiring: a gateway run that executed no tests fails the gate"
 else

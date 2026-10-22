@@ -6,7 +6,7 @@
 # Debug configuration, so lldb can attach. When the primary checkout has
 # `app/Config/Crashbox.local.xcconfig`, crash reporting is compiled in exactly as a release
 # compiles it, except that the environment is `development`, so the SDK really starts (which
-# is what TBX-7352 needs) while nothing it could send is counted as production. Without that
+# is what an internal task needs) while nothing it could send is counted as production. Without that
 # file the probe is built with reporting disabled and the script says so.
 #
 # With <git-ref>, the ref is checked out into a throwaway worktree under <out-dir> and built
@@ -14,7 +14,7 @@
 # after the build. Prints the path of the built Baton.app on the last line.
 #
 # PROBE_BUNDLE_ID=io.tonebox.baton.dev.<name> builds the probe under that bundle id instead of
-# the release one (TBX-1000000034). A probe of a Mac Service needs it: AppKit names the
+# the release one. A probe of a Mac Service needs it: AppKit names the
 # Services port after the bundle id (io.tonebox.baton.ServiceProvider), the owner's running
 # Baton already holds that port, so a probe built as io.tonebox.baton never receives a Service
 # call. Like scripts/devrun.sh, only io.tonebox.baton.dev.* is accepted. Unset, the build is

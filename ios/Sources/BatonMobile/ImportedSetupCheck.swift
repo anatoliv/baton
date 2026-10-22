@@ -8,7 +8,7 @@ import SwiftUI
 /// 9 secrets" and stop. Everything it had configured was untested, and the Friend tab —
 /// which appears only once a connection test has passed — stayed hidden. From the outside
 /// that is indistinguishable from the settings never having arrived, which is the complaint
-/// TBX-5114 began with, surviving its own fix. Finishing a setup should not require knowing
+/// An internal task began with, surviving its own fix. Finishing a setup should not require knowing
 /// that a second button exists on a screen you have not opened.
 ///
 /// **It runs the test rather than assuming it.** The rule is `ServiceStatus`'s own: a green
@@ -98,7 +98,7 @@ final class ImportedSetupCheck {
     /// Read what the freshly imported settings left configured.
     ///
     /// Must run AFTER `MobileModel.reloadAfterSettingsImport()`, or every one of these reads
-    /// the values this phone had before the import — the exact defect TBX-5114 fixed, which
+    /// the values this phone had before the import — the exact defect an internal task fixed, which
     /// would come back here wearing a green badge.
     static func configured(from model: MobileModel) -> Configured {
         Configured(

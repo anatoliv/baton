@@ -287,7 +287,7 @@ final class ClippingsWithoutAServerTests: XCTestCase {
                                            chapterIndex: index, chapterTitle: "Chapter \(index + 1)"))
         }
         XCTAssertEqual(store.items.count, 5)
-        // Two sections since TBX-11018: Clippings counts the readings, Books each book once.
+        // Two sections since an internal task: Clippings counts the readings, Books each book once.
         XCTAssertEqual(BookShelf.readingCount(items: store.items), 2, "two readings, no chapters")
         XCTAssertEqual(BookShelf.bookCount(items: store.items), 1, "three chapters are one book")
     }

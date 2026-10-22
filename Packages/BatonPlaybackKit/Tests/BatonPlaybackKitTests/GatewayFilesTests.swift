@@ -81,7 +81,7 @@ final class GatewayFilesTests: XCTestCase {
 
     /// The phone and the Mac put a listed id into a file path. The gateway only ever issues hex
     /// and dashes, so anything else in a listing (an id like `../x`) is dropped rather than
-    /// trusted to stay inside a temporary folder (TBX-1000000480 B-19).
+    /// trusted to stay inside a temporary folder.
     func testAListingDropsIDsTheGatewayWouldNeverIssue() async throws {
         let good = String(repeating: "ab", count: 32)
         ListingStub.body = Data("""
